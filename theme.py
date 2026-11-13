@@ -22,6 +22,10 @@ GLOBAL_CSS = """
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   }
 
+  [data-testid="stAppViewContainer"], [data-testid="stMain"] {
+    overflow-x: hidden !important;
+  }
+
   header[data-testid="stHeader"] {
     background: transparent;
   }
