@@ -4,6 +4,8 @@ from geonamescache import GeonamesCache
 from streamlit_folium import st_folium
 from streamlit_geolocation import streamlit_geolocation
 
+from theme import inject_theme, page_header, render_sidebar
+
 DEFAULT_CENTER = (22.3193, 114.1694)  # Hong Kong
 
 # Region labels for Hong Kong (geonamescache only provides US state names).
@@ -42,8 +44,13 @@ def set_location(latitude, longitude, place, source):
     reset_simulation()
 
 
-st.title("Location & Rainfall")
-st.caption("Select a location to analyse local historical rainfall.")
+inject_theme()
+render_sidebar("location")
+
+page_header(
+    "Location & Rainfall",
+    "Select a location to analyse local historical rainfall.",
+)
 
 for key, value in {
     "selected_location": None,

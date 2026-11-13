@@ -8,10 +8,15 @@ from calculator import simulate_period
 from water_demand import calculate_total_demand
 from weather_api import get_historical_rainfall
 
+from theme import inject_theme, page_header, render_sidebar
 
-st.title("Household Configuration")
-st.caption(
-    "Configure your household and generate a rainwater allocation plan."
+
+inject_theme()
+render_sidebar("configuration")
+
+page_header(
+    "Household Configuration",
+    "Configure your household and generate a rainwater allocation plan.",
 )
 
 # --------------------------------------------------

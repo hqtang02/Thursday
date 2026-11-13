@@ -2,8 +2,15 @@
 import pandas as pd
 import streamlit as st
 
-st.title("💧 Your Water Allocation Plan")
-st.caption("A practical rainwater allocation plan for your household")
+from theme import inject_theme, page_header, render_sidebar
+
+inject_theme()
+render_sidebar("analysis")
+
+page_header(
+    "Your Water Allocation Plan",
+    "A practical rainwater allocation plan for your household.",
+)
 
 result = st.session_state.get("simulation_result")
 
