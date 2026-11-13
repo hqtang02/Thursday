@@ -11,6 +11,7 @@ st.set_page_config(
 # Initialize shared application state
 defaults = {
     "selected_location": None,
+    "selected_place": None,
     "rainfall_source": "7-Day Sample CSV",
     "historical_days": 30,
     "roof_area": 20.0,
@@ -73,3 +74,4 @@ navigation.run()
 
 st.sidebar.divider()
 st.sidebar.caption("INT6181 Python Group Project")
+
