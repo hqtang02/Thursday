@@ -17,6 +17,16 @@ df = result["data"]
 summary = result["summary"]
 config = st.session_state.get("simulation_config") or {}
 
+place = st.session_state.get("selected_place")
+source = result.get("source")
+if place or source:
+    info = []
+    if place:
+        info.append(f"Location: {place}")
+    if source:
+        info.append(f"Rainfall source: {source}")
+    st.caption(" | ".join(info))
+
 days = len(df)
 
 if days == 0:
