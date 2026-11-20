@@ -1,0 +1,481 @@
+{
+  "meta": {
+    "project": "SmartWater Optimizer",
+    "version": "1.0.0",
+    "billing_cycle_months": 4,
+    "billing_cycle_days": 120,
+    "default_tariff": "hong_kong",
+    "default_city": "hong_kong",
+    "data_source": "Local bundled knowledge base. No external network calls at runtime.",
+    "note_zh": "阶梯水价与降水数据为演示用本地知识库；深圳与伦敦数据用于横向对比，请以当地水务机构最新公告为准。",
+    "note_en": "Tariff and rainfall data are bundled for demonstration. Shenzhen and London figures are for comparison only; always check your local water authority for actual bills."
+  },
+  "tariffs": {
+    "hong_kong": {
+      "name_zh": "香港",
+      "name_en": "Hong Kong",
+      "currency": "HKD",
+      "billing_cycle_months": 4,
+      "source_note_zh": "香港水务署 4 个月账单周期：首 12 度免费，其后分段递增。",
+      "source_note_en": "Water Supplies Department 4-month cycle: first 12 m³ free, then progressive tiers.",
+      "brackets": [
+        {
+          "up_to_m3": 12.0,
+          "rate_per_m3": 0.0,
+          "label_zh": "首 12 m³ 免费",
+          "label_en": "First 12 m³ free"
+        },
+        {
+          "up_to_m3": 43.0,
+          "rate_per_m3": 4.16,
+          "label_zh": "第 13–43 m³",
+          "label_en": "13th–43rd m³"
+        },
+        {
+          "up_to_m3": 62.0,
+          "rate_per_m3": 6.45,
+          "label_zh": "第 44–62 m³",
+          "label_en": "44th–62nd m³"
+        },
+        {
+          "up_to_m3": null,
+          "rate_per_m3": 9.05,
+          "label_zh": "超过 62 m³",
+          "label_en": "Above 62 m³"
+        }
+      ]
+    },
+    "shenzhen": {
+      "name_zh": "深圳",
+      "name_en": "Shenzhen",
+      "currency": "CNY",
+      "billing_cycle_months": 4,
+      "source_note_zh": "深圳居民阶梯水价按年度划分，此处折算为 4 个月周期作对比示意。",
+      "source_note_en": "Shenzhen residential tariffs are annual; shown here as a 4-month equivalent for comparison.",
+      "brackets": [
+        {
+          "up_to_m3": 60.0,
+          "rate_per_m3": 2.67,
+          "label_zh": "第 1 档（0–60 m³）",
+          "label_en": "Tier 1 (0–60 m³)"
+        },
+        {
+          "up_to_m3": 90.0,
+          "rate_per_m3": 3.99,
+          "label_zh": "第 2 档（60–90 m³）",
+          "label_en": "Tier 2 (60–90 m³)"
+        },
+        {
+          "up_to_m3": null,
+          "rate_per_m3": 7.38,
+          "label_zh": "第 3 档（>90 m³）",
+          "label_en": "Tier 3 (>90 m³)"
+        }
+      ]
+    },
+    "london": {
+      "name_zh": "伦敦",
+      "name_en": "London",
+      "currency": "GBP",
+      "billing_cycle_months": 4,
+      "source_note_zh": "伦敦水务以固定收费为主，以下为按用量递增的对比示意阶梯。",
+      "source_note_en": "London water bills are mostly fixed-charge based; the tiers below are an indicative volume comparison.",
+      "brackets": [
+        {
+          "up_to_m3": 55.0,
+          "rate_per_m3": 2.1,
+          "label_zh": "基础档（0–55 m³）",
+          "label_en": "Base tier (0–55 m³)"
+        },
+        {
+          "up_to_m3": 80.0,
+          "rate_per_m3": 3.15,
+          "label_zh": "中档（55–80 m³）",
+          "label_en": "Mid tier (55–80 m³)"
+        },
+        {
+          "up_to_m3": null,
+          "rate_per_m3": 4.6,
+          "label_zh": "高档（>80 m³）",
+          "label_en": "High tier (>80 m³)"
+        }
+      ]
+    }
+  },
+  "cities": {
+    "hong_kong": {
+      "name_zh": "香港",
+      "name_en": "Hong Kong",
+      "latitude": 22.3193,
+      "longitude": 114.1694,
+      "aliases": [
+        "hk",
+        "hong kong",
+        "香港",
+        "hongkong"
+      ],
+      "tariff_key": "hong_kong",
+      "monthly_rainfall_mm": [
+        25.0,
+        55.0,
+        85.0,
+        175.0,
+        300.0,
+        470.0,
+        375.0,
+        420.0,
+        320.0,
+        150.0,
+        40.0,
+        25.0
+      ],
+      "drought_threshold_mm": 60.0,
+      "critical_threshold_mm": 30.0,
+      "base_daily_quota_l_per_person": 140.0,
+      "note_zh": "雨季集中在 5–9 月；冬季少雨，供水压力上升。",
+      "note_en": "Rainfall peaks from May to September; dry winters increase supply pressure."
+    },
+    "shenzhen": {
+      "name_zh": "深圳",
+      "name_en": "Shenzhen",
+      "latitude": 22.5431,
+      "longitude": 114.0579,
+      "aliases": [
+        "sz",
+        "shenzhen",
+        "深圳"
+      ],
+      "tariff_key": "shenzhen",
+      "monthly_rainfall_mm": [
+        30.0,
+        45.0,
+        90.0,
+        185.0,
+        240.0,
+        290.0,
+        215.0,
+        250.0,
+        175.0,
+        70.0,
+        35.0,
+        25.0
+      ],
+      "drought_threshold_mm": 50.0,
+      "critical_threshold_mm": 30.0,
+      "base_daily_quota_l_per_person": 150.0,
+      "note_zh": "前汛期 4–6 月、后汛期 7–9 月降水集中，冬季偏干。",
+      "note_en": "Wet seasons peak in April–June and July–September; winters are relatively dry."
+    },
+    "beijing": {
+      "name_zh": "北京",
+      "name_en": "Beijing",
+      "latitude": 39.9042,
+      "longitude": 116.4074,
+      "aliases": [
+        "bj",
+        "beijing",
+        "北京"
+      ],
+      "tariff_key": "hong_kong",
+      "monthly_rainfall_mm": [
+        3.0,
+        5.0,
+        8.0,
+        20.0,
+        35.0,
+        75.0,
+        185.0,
+        160.0,
+        50.0,
+        20.0,
+        10.0,
+        3.0
+      ],
+      "drought_threshold_mm": 30.0,
+      "critical_threshold_mm": 10.0,
+      "base_daily_quota_l_per_person": 130.0,
+      "note_zh": "降水高度集中于 7–8 月，全年多数月份处于少雨期。",
+      "note_en": "Rainfall is highly concentrated in July and August; most months are dry."
+    },
+    "london": {
+      "name_zh": "伦敦",
+      "name_en": "London",
+      "latitude": 51.5074,
+      "longitude": -0.1278,
+      "aliases": [
+        "ldn",
+        "london",
+        "伦敦"
+      ],
+      "tariff_key": "london",
+      "monthly_rainfall_mm": [
+        55.0,
+        40.0,
+        40.0,
+        45.0,
+        50.0,
+        45.0,
+        45.0,
+        50.0,
+        50.0,
+        70.0,
+        60.0,
+        55.0
+      ],
+      "drought_threshold_mm": 45.0,
+      "critical_threshold_mm": 35.0,
+      "base_daily_quota_l_per_person": 160.0,
+      "note_zh": "全年降水较均匀，冬末春初偶有偏少月份。",
+      "note_en": "Rainfall is fairly even year-round, with occasional drier months in late winter and early spring."
+    }
+  },
+  "usage_rates": {
+    "cycle_days": 120,
+    "shower": {
+      "liters_per_minute": 9.0,
+      "label_zh": "淋浴",
+      "label_en": "Shower"
+    },
+    "laundry": {
+      "liters_per_load": 60.0,
+      "loads_per_week_baseline": 4.0,
+      "label_zh": "洗衣",
+      "label_en": "Laundry"
+    },
+    "dishwashing": {
+      "hand_running": {
+        "liters_per_session": 30.0,
+        "sessions_per_day": 1.0,
+        "label_zh": "长流水手洗",
+        "label_en": "Hand wash (running tap)"
+      },
+      "basin_soak": {
+        "liters_per_session": 10.0,
+        "sessions_per_day": 1.0,
+        "label_zh": "盆接水手洗",
+        "label_en": "Hand wash (basin)"
+      },
+      "dishwasher": {
+        "liters_per_session": 12.0,
+        "sessions_per_day": 1.0,
+        "label_zh": "洗碗机",
+        "label_en": "Dishwasher"
+      }
+    },
+    "toilet": {
+      "liters_per_flush": 6.0,
+      "flushes_per_person_per_day": 4.0,
+      "label_zh": "冲厕",
+      "label_en": "Toilet"
+    },
+    "drinking_cooking": {
+      "liters_per_person_per_day": 5.0,
+      "label_zh": "饮用与烹饪",
+      "label_en": "Drinking & cooking"
+    }
+  },
+  "presets": {
+    "solo_student": {
+      "label_zh": "独居留学生单间",
+      "label_en": "Solo Student Studio",
+      "description_zh": "1 人居住，淋浴 8 分鐘，長流水洗碗，用水量中等。",
+      "description_en": "One person with 8-minute showers and running-tap dishwashing; a moderate water baseline.",
+      "target_savings": 5.0,
+      "usage": {
+        "people": 1,
+        "shower_minutes_per_day": 8.0,
+        "laundry_loads_per_week": 2.0,
+        "dishwashing_habit": "hand_running",
+        "toilet_flushes_per_person_per_day": 4.0,
+        "drinking_cooking_liters_per_person_per_day": 4.0
+      }
+    },
+    "shared_dorm_4": {
+      "label_zh": "合租四人宿舍",
+      "label_en": "4-Person Shared Dorm",
+      "description_zh": "4 人共用卫浴，洗衣频繁，长流水洗碗为主。",
+      "description_en": "Four people sharing one bathroom, frequent laundry and running-tap dishwashing.",
+      "target_savings": 20.0,
+      "usage": {
+        "people": 4,
+        "shower_minutes_per_day": 7.0,
+        "laundry_loads_per_week": 6.0,
+        "dishwashing_habit": "hand_running",
+        "toilet_flushes_per_person_per_day": 4.0,
+        "drinking_cooking_liters_per_person_per_day": 4.0
+      }
+    },
+    "family_of_3": {
+      "label_zh": "普通三口之家",
+      "label_en": "Family of 3",
+      "description_zh": "3 人家庭，日常淋浴与洗碗机并用，用水结构均衡。",
+      "description_en": "Three people with a balanced mix of showers and dishwasher use.",
+      "target_savings": 15.0,
+      "usage": {
+        "people": 3,
+        "shower_minutes_per_day": 8.0,
+        "laundry_loads_per_week": 5.0,
+        "dishwashing_habit": "dishwasher",
+        "toilet_flushes_per_person_per_day": 4.0,
+        "drinking_cooking_liters_per_person_per_day": 5.0
+      }
+    },
+    "couple_apartment": {
+      "label_zh": "情侣双人公寓",
+      "label_en": "Couple Apartment",
+      "description_zh": "2 人居住，淋浴与洗衣适中，洗碗机使用较多。",
+      "description_en": "Two people with moderate showers and laundry, frequent dishwasher use.",
+      "target_savings": 10.0,
+      "usage": {
+        "people": 2,
+        "shower_minutes_per_day": 7.0,
+        "laundry_loads_per_week": 3.0,
+        "dishwashing_habit": "dishwasher",
+        "toilet_flushes_per_person_per_day": 4.0,
+        "drinking_cooking_liters_per_person_per_day": 5.0
+      }
+    },
+    "young_professional": {
+      "label_zh": "独居上班族",
+      "label_en": "Working Professional",
+      "description_zh": "1 人居住，回家时间较晚，淋浴偏长但洗衣较少。",
+      "description_en": "One person with longer evening showers but infrequent laundry.",
+      "target_savings": 4.0,
+      "usage": {
+        "people": 1,
+        "shower_minutes_per_day": 9.0,
+        "laundry_loads_per_week": 2.0,
+        "dishwashing_habit": "basin_soak",
+        "toilet_flushes_per_person_per_day": 4.0,
+        "drinking_cooking_liters_per_person_per_day": 4.0
+      }
+    },
+    "shared_flat_2": {
+      "label_zh": "两人合租公寓",
+      "label_en": "2-Person Shared Flat",
+      "description_zh": "2 人共用卫浴，洗衣频繁，以盆接水洗碗为主。",
+      "description_en": "Two people sharing a bathroom, frequent laundry and basin dishwashing.",
+      "target_savings": 10.0,
+      "usage": {
+        "people": 2,
+        "shower_minutes_per_day": 6.0,
+        "laundry_loads_per_week": 4.0,
+        "dishwashing_habit": "basin_soak",
+        "toilet_flushes_per_person_per_day": 4.0,
+        "drinking_cooking_liters_per_person_per_day": 4.0
+      }
+    },
+    "family_of_5": {
+      "label_zh": "五口之家",
+      "label_en": "Family of 5",
+      "description_zh": "5 人家庭，淋浴与洗衣量大，洗碗机每日运行。",
+      "description_en": "Five people with heavy shower and laundry use and a daily dishwasher.",
+      "target_savings": 25.0,
+      "usage": {
+        "people": 5,
+        "shower_minutes_per_day": 8.0,
+        "laundry_loads_per_week": 8.0,
+        "dishwashing_habit": "dishwasher",
+        "toilet_flushes_per_person_per_day": 4.0,
+        "drinking_cooking_liters_per_person_per_day": 5.0
+      }
+    },
+    "live_in_student": {
+      "label_zh": "住宿舍学生",
+      "label_en": "Dorm Student",
+      "description_zh": "多人共用卫浴，短时淋浴，长流水洗碗。",
+      "description_en": "Shared dorm bathroom, short showers and running-tap dishwashing.",
+      "target_savings": 4.0,
+      "usage": {
+        "people": 1,
+        "shower_minutes_per_day": 5.0,
+        "laundry_loads_per_week": 3.0,
+        "dishwashing_habit": "hand_running",
+        "toilet_flushes_per_person_per_day": 5.0,
+        "drinking_cooking_liters_per_person_per_day": 3.0
+      }
+    }
+  },
+  "conservation_measures": [
+    {
+      "id": "low_flow_showerhead",
+      "description_zh": "更换节水花洒（≤7 升/分钟）",
+      "description_en": "Install a low-flow showerhead (≤7 L/min)",
+      "water_saved_liters_per_day": 24.0,
+      "comfort_penalty_score": 1,
+      "category": "shower"
+    },
+    {
+      "id": "shorter_shower",
+      "description_zh": "淋浴时间每天缩短 2 分钟",
+      "description_en": "Cut shower time by 2 minutes every day",
+      "water_saved_liters_per_day": 18.0,
+      "comfort_penalty_score": 2,
+      "category": "shower"
+    },
+    {
+      "id": "full_laundry_load",
+      "description_zh": "洗衣机只在满载时运行",
+      "description_en": "Only run the washing machine with a full load",
+      "water_saved_liters_per_day": 18.0,
+      "comfort_penalty_score": 2,
+      "category": "laundry"
+    },
+    {
+      "id": "quick_wash_cycle",
+      "description_zh": "改用快洗 / 节能洗衣程序",
+      "description_en": "Switch to quick or eco wash cycles",
+      "water_saved_liters_per_day": 12.0,
+      "comfort_penalty_score": 3,
+      "category": "laundry"
+    },
+    {
+      "id": "basin_dishwashing",
+      "description_zh": "洗碗改用盆接水，代替长流水",
+      "description_en": "Wash dishes in a basin instead of under a running tap",
+      "water_saved_liters_per_day": 20.0,
+      "comfort_penalty_score": 3,
+      "category": "dishwashing"
+    },
+    {
+      "id": "full_dishwasher_load",
+      "description_zh": "洗碗机满载后再启动",
+      "description_en": "Run the dishwasher only when fully loaded",
+      "water_saved_liters_per_day": 8.0,
+      "comfort_penalty_score": 1,
+      "category": "dishwashing"
+    },
+    {
+      "id": "tap_off_while_brushing",
+      "description_zh": "刷牙 / 剃须时随手关闭水龙头",
+      "description_en": "Turn off the tap while brushing teeth or shaving",
+      "water_saved_liters_per_day": 12.0,
+      "comfort_penalty_score": 1,
+      "category": "general"
+    },
+    {
+      "id": "cistern_bottle",
+      "description_zh": "马桶水箱放入节水瓶减少冲水量",
+      "description_en": "Place a water-displacement bottle in the toilet cistern",
+      "water_saved_liters_per_day": 10.0,
+      "comfort_penalty_score": 1,
+      "category": "toilet"
+    },
+    {
+      "id": "fix_leaks",
+      "description_zh": "检修滴水龙头与漏水马桶",
+      "description_en": "Fix dripping taps and leaking toilets",
+      "water_saved_liters_per_day": 15.0,
+      "comfort_penalty_score": 1,
+      "category": "general"
+    },
+    {
+      "id": "reuse_greywater",
+      "description_zh": "淘米 / 洗菜水收集后用于冲厕",
+      "description_en": "Reuse rice- and vegetable-washing water for toilet flushing",
+      "water_saved_liters_per_day": 10.0,
+      "comfort_penalty_score": 2,
+      "category": "toilet"
+    }
+  ]
+}

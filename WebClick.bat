@@ -2,7 +2,7 @@
 setlocal
 cd /d "%~dp0"
 
-echo [1/4] Checking Python...
+echo [1/3] Checking Python...
 set "PY="
 set "PYARGS="
 if exist "%USERPROFILE%\anaconda3\python.exe" set "PY=%USERPROFILE%\anaconda3\python.exe"
@@ -34,24 +34,16 @@ if errorlevel 1 (
     exit /b 1
 )
 
-echo [2/4] Checking core dependencies...
-"%PY%" %PYARGS% -c "import streamlit, pandas, requests" >nul 2>nul
+echo [2/3] Checking dependencies...
+"%PY%" %PYARGS% -c "import streamlit, pandas" >nul 2>nul
 if errorlevel 1 (
-    echo Installing core dependencies...
-    "%PY%" %PYARGS% -m pip install -q streamlit pandas requests
+    echo Installing dependencies...
+    "%PY%" %PYARGS% -m pip install -q streamlit pandas folium
     if errorlevel 1 goto :error
 )
 
-echo [3/4] Checking map dependencies...
-"%PY%" %PYARGS% -c "import folium, streamlit_folium, streamlit_geolocation, geonamescache" >nul 2>nul
-if errorlevel 1 (
-    echo Installing map dependencies...
-    "%PY%" %PYARGS% -m pip install -q folium streamlit-folium streamlit-geolocation geonamescache
-    if errorlevel 1 goto :error
-)
-
-echo [4/4] Starting RainWise...
-"%PY%" %PYARGS% -m streamlit run app.py
+echo [3/3] Starting SmartWater Optimizer...
+"%PY%" %PYARGS% -m streamlit run main.py
 if errorlevel 1 (
     echo.
     echo Streamlit failed to start.
