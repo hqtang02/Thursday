@@ -1,4 +1,5 @@
-streamlit>=1.30
+streamlit>=1.67
 pandas>=2.0
-folium>=0.14
+streamlit-js-eval>=1.0
+streamlit-geolocation>=0.0.10
 pytest>=7.4
