@@ -631,7 +631,9 @@ def _restore_state_from_query() -> bool:
         raw = query[key]
         try:
             if key in INT_KEYS:
-                value: Any = int(float(raw))
+                # 严格要求整数语法：int("1.9") 抛出 ValueError，
+                # 由外层捕获后静默忽略，而不是把 1.9 截断成 1。
+                value: Any = int(raw)
             elif key in FLOAT_KEYS:
                 value = float(raw)
             else:
