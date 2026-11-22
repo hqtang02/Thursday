@@ -35,14 +35,14 @@ if errorlevel 1 (
 )
 
 echo [2/3] Checking dependencies...
-"%PY%" %PYARGS% -c "import streamlit, pandas" >nul 2>nul
+"%PY%" %PYARGS% -c "import streamlit.components.v2, pandas, streamlit_js_eval" >nul 2>nul
 if errorlevel 1 (
     echo Installing dependencies...
-    "%PY%" %PYARGS% -m pip install -q streamlit pandas folium
+    "%PY%" %PYARGS% -m pip install -q -U streamlit pandas streamlit-js-eval streamlit-geolocation
     if errorlevel 1 goto :error
 )
 
-echo [3/3] Starting SmartWater Optimizer...
+echo [3/3] Starting Rainwater Smart Planner...
 "%PY%" %PYARGS% -m streamlit run main.py
 if errorlevel 1 (
     echo.

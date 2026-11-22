@@ -1,7 +1,26 @@
 
+import html
+from datetime import datetime
+
 import pandas as pd
 import streamlit as st
-from streamlit_js_eval import get_geolocation
+from streamlit.components.v2 import component
+
+try:
+    from streamlit_js_eval import get_geolocation
+except ImportError:  # fallback to the already-installed streamlit-geolocation package
+    from streamlit_geolocation import streamlit_geolocation as _streamlit_geolocation
+
+    def get_geolocation():
+        position = _streamlit_geolocation()
+        if isinstance(position, dict):
+            return {
+                "coords": {
+                    "latitude": position.get("latitude"),
+                    "longitude": position.get("longitude"),
+                }
+            }
+        return position
 
 from rainfall_service import search_city, get_rainfall_forecast
 from rainwater_engine import WaterTask, compare_strategies
@@ -9,7 +28,7 @@ from recommendation_engine import generate_recommendations
 
 
 # ============================================================
-# PAGE
+# CONFIG
 # ============================================================
 
 st.set_page_config(
@@ -19,81 +38,48 @@ st.set_page_config(
     initial_sidebar_state="collapsed",
 )
 
+CARD_HEIGHT = 340
+
 SCENES = {
-    "Bathroom": {
-        "slug": "bathroom",
-        "icon": "🚽",
-        "base": 60.0,
-        "priority": 1,
-        "flexible": False,
-        "unit": "day",
-    },
-    "Kitchen": {
-        "slug": "kitchen",
-        "icon": "🚰",
-        "base": 15.0,
-        "priority": 2,
-        "flexible": False,
-        "unit": "day",
-    },
-    "Laundry": {
-        "slug": "laundry",
-        "icon": "🧺",
-        "base": 80.0,
-        "priority": 3,
-        "flexible": True,
-        "unit": "use",
-    },
-    "Garden": {
-        "slug": "garden",
-        "icon": "🌿",
-        "base": 40.0,
-        "priority": 2,
-        "flexible": False,
-        "unit": "day",
-    },
-    "Driveway": {
-        "slug": "driveway",
-        "icon": "🚙",
-        "base": 100.0,
-        "priority": 4,
-        "flexible": True,
-        "unit": "use",
-    },
-    "Living Room": {
-        "slug": "living",
-        "icon": "🛋️",
-        "base": 20.0,
-        "priority": 3,
-        "flexible": False,
-        "unit": "day",
-    },
+    "Bathroom": ("bathroom", "🚽", 60, 1, False, "day"),
+    "Kitchen": ("kitchen", "🚰", 15, 2, False, "day"),
+    "Laundry": ("laundry", "🧺", 80, 3, True, "use"),
+    "Garden": ("garden", "🌿", 40, 2, False, "day"),
+    "Driveway": ("driveway", "🚙", 100, 4, True, "use"),
+    "Living Room": ("living", "🛋️", 20, 3, False, "day"),
 }
 
-LEVELS = {
+FACTORS = {
     "Low": 0.6,
     "Medium": 1.0,
     "High": 1.5,
 }
 
 st.session_state.setdefault("entered", False)
-st.session_state.setdefault(
-    "selected_scenes", ["Bathroom", "Garden"]
-)
+st.session_state.setdefault("location_mode", "city")
+st.session_state.setdefault("selected_location", None)
+st.session_state.setdefault("selected_scenes", ["Bathroom", "Garden", "Laundry"])
+st.session_state.setdefault("usage_levels", {})
 st.session_state.setdefault("plan", None)
+st.session_state.setdefault("city_results", [])
+st.session_state.setdefault("searched_city", "")
 st.session_state.setdefault("request_location", False)
 
 for name, config in SCENES.items():
-    st.session_state.setdefault(
-        f"level_{config['slug']}", "Medium"
-    )
+    slug = config[0]
+    st.session_state.usage_levels.setdefault(name, "Medium")
+    st.session_state.setdefault(f"level_{slug}", "Medium")
 
 
 # ============================================================
-# HELPERS
+# CALLBACKS
 # ============================================================
 
-def enter_application():
+def invalidate_plan():
+    st.session_state.plan = None
+
+
+def enter_app():
     st.session_state.entered = True
 
 
@@ -101,41 +87,80 @@ def return_home():
     st.session_state.entered = False
 
 
-def invalidate_plan():
-    st.session_state.plan = None
-
-
-def toggle_scene(name):
-    selected = list(st.session_state.selected_scenes)
-
-    if name in selected:
-        selected.remove(name)
-    else:
-        selected.append(name)
-
-    st.session_state.selected_scenes = selected
+def change_location_mode(mode):
+    st.session_state.location_mode = mode
+    st.session_state.selected_location = None
     invalidate_plan()
 
 
-def scene_demand(name):
-    config = SCENES[name]
-    level = st.session_state[f"level_{config['slug']}"]
-    return round(config["base"] * LEVELS[level], 2)
+def set_location(location):
+    old = st.session_state.selected_location
 
+    old_coords = None
+
+    if old:
+        old_coords = (
+            float(old["latitude"]),
+            float(old["longitude"]),
+        )
+
+    new_coords = (
+        float(location["latitude"]),
+        float(location["longitude"]),
+    )
+
+    if new_coords != old_coords:
+        invalidate_plan()
+
+    st.session_state.selected_location = location
+
+
+def toggle_scene(name):
+    scenes = list(st.session_state.selected_scenes)
+
+    if name in scenes:
+        scenes.remove(name)
+    else:
+        scenes.append(name)
+
+    st.session_state.selected_scenes = scenes
+    invalidate_plan()
+
+
+def change_level(name, slug):
+    st.session_state.usage_levels[name] = (
+        st.session_state[f"level_{slug}"]
+    )
+    invalidate_plan()
+
+
+def demand_for(name):
+    config = SCENES[name]
+    level = st.session_state.usage_levels[name]
+
+    return round(float(config[2]) * FACTORS[level], 2)
+
+
+# ============================================================
+# CALCULATION
+# ============================================================
 
 def build_tasks(selected, days):
     tasks = []
 
     for name in selected:
-        config = SCENES[name]
-        amount = scene_demand(name)
+        slug, icon, base, priority, flexible, unit = SCENES[name]
+        amount = demand_for(name)
 
-        if config["flexible"]:
+        if amount <= 0:
+            continue
+
+        if flexible:
             tasks.append(
                 WaterTask(
                     name=name,
                     amount=amount,
-                    priority=config["priority"],
+                    priority=priority,
                     flexible=True,
                     earliest_day=0,
                     latest_day=days - 1,
@@ -147,7 +172,7 @@ def build_tasks(selected, days):
                     WaterTask(
                         name=name,
                         amount=amount,
-                        priority=config["priority"],
+                        priority=priority,
                         flexible=False,
                         earliest_day=day,
                         latest_day=day,
@@ -161,15 +186,15 @@ def make_daily_table(result, dates):
     rows = []
 
     for record in result["records"]:
-        details = {}
+        allocations = {}
 
         for item in record["allocations"]:
             name = item["task"]
-            details[name] = (
-                details.get(name, 0) + item["supplied"]
+            allocations[name] = (
+                allocations.get(name, 0) + item["supplied"]
             )
 
-        rows.append({
+        row = {
             "Date": dates[record["day"] - 1],
             "Rainfall (mm)": record["rainfall"],
             "Collected (L)": record["collected"],
@@ -177,36 +202,64 @@ def make_daily_table(result, dates):
             "Shortage (L)": record["shortage"],
             "Overflow (L)": record["overflow"],
             "Remaining (L)": record["remaining"],
-            **details,
-        })
+        }
+
+        row.update(allocations)
+        rows.append(row)
 
     return pd.DataFrame(rows).fillna(0)
 
 
+@st.cache_data(ttl=1800, show_spinner=False)
+def load_weather(latitude, longitude):
+    dates, rainfall = get_rainfall_forecast(latitude, longitude)
+    fetched = datetime.now().astimezone().isoformat(timespec="minutes")
+    return dates, rainfall, fetched
+
+
+def date_label(value):
+    try:
+        return pd.to_datetime(value).strftime("%a %d %b")
+    except (ValueError, TypeError):
+        return str(value)
+
+
+def rain_category(rain):
+    if rain < 0.1:
+        return "dry", "No rain"
+    if rain < 2:
+        return "light", "Light rain"
+    if rain < 10:
+        return "moderate", "Rain expected"
+    return "heavy", "High rainfall"
+
+
 # ============================================================
-# FULLSCREEN TAP WELCOME
+# FULLSCREEN FAUCET COMPONENT
 # ============================================================
 
 WELCOME_HTML = """
 <div id="welcome">
-  <div class="welcome-content">
+  <div class="welcome-center">
     <div class="brand">◈ &nbsp; RAINWATER SMART PLANNER</div>
+
     <h1>Make Every<br><em>Drop Count.</em></h1>
+
     <p>Collect, manage, and use rainwater smarter.</p>
 
-    <svg class="tap" viewBox="0 0 550 340">
+    <svg viewBox="0 0 550 340" class="tap">
       <defs>
         <linearGradient id="metal" x1="0" y1="0" x2="1" y2="1">
-          <stop offset="0" stop-color="#f6fcff"/>
-          <stop offset=".25" stop-color="#91aab5"/>
-          <stop offset=".5" stop-color="#e0ecf1"/>
-          <stop offset=".78" stop-color="#5f7887"/>
-          <stop offset="1" stop-color="#bdced8"/>
+          <stop offset="0%" stop-color="#f5fdff"/>
+          <stop offset="25%" stop-color="#8fa8b5"/>
+          <stop offset="50%" stop-color="#e1eef3"/>
+          <stop offset="78%" stop-color="#5f7a89"/>
+          <stop offset="100%" stop-color="#c3d8e0"/>
         </linearGradient>
         <linearGradient id="stream" x1="0" y1="0" x2="1" y2="0">
-          <stop offset="0" stop-color="#269fcf"/>
-          <stop offset=".5" stop-color="#efffff"/>
-          <stop offset="1" stop-color="#43bce5"/>
+          <stop offset="0%" stop-color="#269fcf"/>
+          <stop offset="50%" stop-color="#efffff"/>
+          <stop offset="100%" stop-color="#43bce5"/>
         </linearGradient>
       </defs>
 
@@ -216,18 +269,18 @@ WELCOME_HTML = """
             rx="28" fill="url(#metal)"/>
       <rect x="240" y="95" width="86" height="112"
             rx="23" fill="url(#metal)"/>
+
       <path d="M290 170 H365 Q425 170 425 226 V250"
             stroke="url(#metal)" stroke-width="64"
             fill="none" stroke-linecap="round"/>
+
       <rect x="395" y="232" width="60" height="30"
             rx="12" fill="url(#metal)"/>
-      <ellipse cx="425" cy="262" rx="26" ry="7"
-               fill="#34515f"/>
+      <ellipse cx="425" cy="262" rx="26" ry="7" fill="#34515f"/>
 
       <g id="lever" role="slider" tabindex="0"
-         aria-label="Drag faucet handle"
-         aria-valuemin="0" aria-valuemax="100"
-         aria-valuenow="0">
+         aria-label="Drag tap handle to enter"
+         aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
         <rect x="264" y="65" width="44" height="50"
               rx="12" fill="url(#metal)"/>
         <rect x="247" y="55" width="163" height="28"
@@ -237,14 +290,11 @@ WELCOME_HTML = """
       </g>
 
       <rect id="tap-water" x="421" y="265"
-            width="8" height="0" rx="5"
-            fill="url(#stream)"/>
+            width="8" height="0" rx="5" fill="url(#stream)"/>
     </svg>
 
-    <div class="instruction">
-      DRAG THE HANDLE TO THE RIGHT →
-    </div>
-    <div class="track"><div id="intro-progress"></div></div>
+    <div class="help">DRAG THE HANDLE TO THE RIGHT →</div>
+    <div class="track"><div id="progress"></div></div>
   </div>
 
   <div id="intro-water">
@@ -258,24 +308,26 @@ WELCOME_CSS = """
 :host {
   position: fixed !important;
   inset: 0 !important;
+  z-index: 2147483000 !important;
   width: 100vw !important;
   height: 100dvh !important;
-  z-index: 2147483000 !important;
 }
+
 * { box-sizing: border-box; }
+
 #welcome {
   position: fixed;
   inset: 0;
   width: 100vw;
   height: 100dvh;
-  overflow: hidden;
-  background:
-    radial-gradient(circle at 50% 40%, #284e60, transparent 65%),
-    linear-gradient(125deg, #081923, #102d3d);
+  background: radial-gradient(circle at 50% 40%, #284e60, transparent 65%),
+              linear-gradient(125deg, #081923, #102d3d);
   color: white;
-  font-family: Inter, "Segoe UI", sans-serif;
+  font-family: Inter, "Segoe UI", Arial, sans-serif;
+  overflow: hidden;
 }
-.welcome-content {
+
+.welcome-center {
   position: absolute;
   inset: 0;
   z-index: 3;
@@ -286,20 +338,25 @@ WELCOME_CSS = """
   text-align: center;
   padding: 20px;
 }
+
 .brand {
   color: #8cdbe2;
   font-size: 12px;
   font-weight: 700;
   letter-spacing: 3px;
 }
+
 h1 {
   font-size: clamp(43px, 6vw, 80px);
   letter-spacing: -3px;
   line-height: 1.08;
   margin: 30px 0 13px;
 }
+
 h1 em { color: #83dce5; font-style: normal; }
-p { color: #a9c5cd; line-height: 1.8; }
+
+p { color: #a9c5cd; }
+
 .tap {
   width: min(550px, 92vw);
   max-height: 48vh;
@@ -307,49 +364,57 @@ p { color: #a9c5cd; line-height: 1.8; }
   overflow: visible;
   filter: drop-shadow(0 16px 15px #0005);
 }
+
 #lever {
   cursor: grab;
   touch-action: none;
   transform-origin: 286px 110px;
 }
+
 #lever:focus-visible {
   outline: none;
-  filter: drop-shadow(0 0 9px #91f0ff);
+  filter: drop-shadow(0 0 10px #8fe8fa);
 }
-.instruction {
+
+.help {
   margin-top: -12px;
   color: #9bd7dd;
   font-size: 11px;
   letter-spacing: 2px;
 }
+
 .track {
   height: 4px;
   width: 210px;
-  margin-top: 18px;
   background: #345968;
+  margin-top: 18px;
   border-radius: 10px;
   overflow: hidden;
 }
-#intro-progress {
-  width: 0%;
+
+#progress {
   height: 100%;
+  width: 0%;
   background: #8be8ef;
 }
+
 #intro-water {
   position: absolute;
+  bottom: 0;
   left: 0;
   right: 0;
-  bottom: 0;
   height: 0%;
   z-index: 4;
   pointer-events: none;
   transition: height .08s linear;
 }
+
 .intro-water-body {
   position: absolute;
   inset: 0;
   background: linear-gradient(#91def0d9, #278caf);
 }
+
 .intro-wave {
   position: absolute;
   top: -20px;
@@ -360,14 +425,17 @@ p { color: #a9c5cd; line-height: 1.8; }
   background: #8bdeed;
   animation: welcomeWave 3s ease-in-out infinite;
 }
+
 @keyframes welcomeWave {
   50% { transform: translateX(2%) translateY(8px); }
 }
+
 #welcome.done #intro-water {
   height: 125% !important;
   transition: height .9s ease-in !important;
 }
-@media(prefers-reduced-motion:reduce) {
+
+@media (prefers-reduced-motion: reduce) {
   .intro-wave { animation: none; }
 }
 """
@@ -378,7 +446,7 @@ export default function({parentElement, setTriggerValue}) {
   const lever = parentElement.querySelector("#lever");
   const water = parentElement.querySelector("#intro-water");
   const stream = parentElement.querySelector("#tap-water");
-  const bar = parentElement.querySelector("#intro-progress");
+  const bar = parentElement.querySelector("#progress");
 
   if (!root || !lever) return;
 
@@ -391,12 +459,15 @@ export default function({parentElement, setTriggerValue}) {
 
   function update(value) {
     if (finished) return;
+
     progress = Math.max(0, Math.min(100, value));
+
     const t = progress / 100;
     const width = 6 + t * 14;
 
     lever.style.transform = `rotate(${t * 45}deg)`;
     lever.setAttribute("aria-valuenow", String(Math.round(progress)));
+
     stream.setAttribute("height", String(t * 75));
     stream.setAttribute("width", String(width));
     stream.setAttribute("x", String(425 - width / 2));
@@ -407,45 +478,55 @@ export default function({parentElement, setTriggerValue}) {
 
   function finish() {
     if (finished) return;
+
     update(100);
     finished = true;
     dragging = false;
     root.classList.add("done");
-    timer = setTimeout(() => setTriggerValue("enter", true), 1000);
+
+    timer = window.setTimeout(() => {
+      setTriggerValue("enter", true);
+    }, 1000);
   }
 
-  function down(e) {
+  function down(event) {
     if (finished) return;
+
     dragging = true;
-    startX = e.clientX;
+    startX = event.clientX;
     startProgress = progress;
-    lever.setPointerCapture(e.pointerId);
-    e.preventDefault();
+
+    lever.setPointerCapture(event.pointerId);
+    event.preventDefault();
   }
 
-  function move(e) {
+  function move(event) {
     if (!dragging || finished) return;
-    update(startProgress + (e.clientX - startX) / 155 * 100);
+
+    update(startProgress + (event.clientX - startX) / 155 * 100);
+
     if (progress >= 99) finish();
   }
 
   function up() {
     if (!dragging || finished) return;
+
     dragging = false;
+
     if (progress >= 90) finish();
     else update(0);
   }
 
-  function key(e) {
-    if (e.key === "ArrowRight") {
-      e.preventDefault();
+  function key(event) {
+    if (event.key === "ArrowRight") {
+      event.preventDefault();
       update(progress + 20);
       if (progress >= 100) finish();
-    } else if (e.key === "ArrowLeft") {
-      e.preventDefault();
+    } else if (event.key === "ArrowLeft") {
+      event.preventDefault();
       update(progress - 20);
-    } else if (e.key === "Enter" || e.key === " ") {
-      e.preventDefault();
+    } else if (event.key === "Enter" || event.key === " ") {
+      event.preventDefault();
       finish();
     }
   }
@@ -462,61 +543,62 @@ export default function({parentElement, setTriggerValue}) {
     lever.removeEventListener("pointerup", up);
     lever.removeEventListener("pointercancel", up);
     lever.removeEventListener("keydown", key);
-    if (timer !== null) clearTimeout(timer);
+
+    if (timer !== null) window.clearTimeout(timer);
   };
 }
 """
 
 
 # ============================================================
-# INTRO PAGE
+# INTRO SCREEN
 # ============================================================
 
 if not st.session_state.entered:
     st.markdown(
         """
         <style>
-        html, body { overflow: hidden !important; }
+        html, body {overflow:hidden !important;}
         [data-testid="stHeader"],
         [data-testid="stToolbar"],
         [data-testid="stSidebar"] {
-          display: none !important;
+            display:none !important;
         }
         .block-container {
-          padding: 0 !important;
-          max-width: none !important;
+            padding:0 !important;
+            max-width:none !important;
         }
         </style>
         """,
         unsafe_allow_html=True,
     )
 
-    welcome_component = st.components.v2.component(
-        "rainwater_welcome_v3",
+    welcome = component(
+        "rainwater_welcome_html_fixed_v1",
         html=WELCOME_HTML,
         css=WELCOME_CSS,
         js=WELCOME_JS,
     )
 
-    welcome_component(
-        key="rainwater_welcome",
-        on_enter_change=enter_application,
+    welcome(
+        key="welcome_screen",
+        on_enter_change=enter_app,
     )
+
     st.stop()
 
 
 # ============================================================
-# DYNAMIC WATER BACKGROUND
+# BACKGROUND WATER COMPONENT
 # ============================================================
 
 WATER_HTML = """
 <div class="water-background" aria-hidden="true">
   <div class="water-fill">
-    <div class="wave back"></div>
-    <div class="wave front"></div>
     <div class="water-body"></div>
+    <div class="water-wave wave-back"></div>
+    <div class="water-wave wave-front"></div>
     <div class="reflection"></div>
-    <div class="reflection second"></div>
     <div class="caustics"></div>
   </div>
 </div>
@@ -526,31 +608,34 @@ WATER_CSS = """
 :host {
   position: fixed !important;
   inset: 0 !important;
-  z-index: 0 !important;
   width: 100vw !important;
   height: 100dvh !important;
+  z-index: 0 !important;
   pointer-events: none !important;
 }
+
 .water-background {
   position: fixed;
   inset: 0;
   width: 100vw;
   height: 100dvh;
-  pointer-events: none;
   overflow: hidden;
+  pointer-events: none;
   background:
     radial-gradient(circle at 12% 10%, #c6eaf0, transparent 46%),
     radial-gradient(circle at 89% 35%, #c5eddb, transparent 42%),
     linear-gradient(150deg, #f1fafd, #e8f6f4);
 }
+
 .water-fill {
   position: absolute;
+  bottom: 0;
   left: 0;
   right: 0;
-  bottom: 0;
   height: 0%;
   transition: height 1250ms cubic-bezier(.2,.7,.2,1);
 }
+
 .water-body {
   position: absolute;
   inset: 0;
@@ -563,69 +648,74 @@ WATER_CSS = """
       rgba(20,111,166,.9)
     );
 }
-.wave {
+
+.water-wave {
   position: absolute;
   z-index: 3;
+  top: -20px;
   left: -15%;
   width: 130%;
-  height: 66px;
-  border-radius: 46% 54% 50% 50%;
+  height: 62px;
+  border-radius: 50%;
+  animation: wave 5.4s ease-in-out infinite alternate;
 }
-.wave.back {
+
+.wave-back {
+  background: #89dceabd;
   top: -27px;
-  background: rgba(129,217,236,.75);
-  animation: wave 5.8s ease-in-out infinite alternate;
 }
-.wave.front {
-  top: -14px;
-  background: rgba(224,252,255,.46);
-  animation: wave 4.2s ease-in-out infinite alternate-reverse;
+
+.wave-front {
+  background: #dcfafb70;
+  top: -13px;
+  animation-direction: alternate-reverse;
+  animation-duration: 4.3s;
 }
+
 @keyframes wave {
   0% { transform: translate(-2%, -5px) rotate(-.3deg); }
   100% { transform: translate(2%, 9px) rotate(.3deg); }
 }
+
 .reflection {
   position: absolute;
   z-index: 4;
   top: -20%;
-  left: 20%;
-  width: 22%;
+  left: 28%;
   height: 160%;
+  width: 20%;
   transform: rotate(19deg);
-  filter: blur(25px);
-  background: linear-gradient(
-    90deg, transparent, #ffffff30, transparent
-  );
-  animation: shimmer 8s ease-in-out infinite;
+  filter: blur(24px);
+  background: linear-gradient(90deg, transparent, #ffffff35, transparent);
+  animation: shine 8s ease-in-out infinite;
 }
-.reflection.second {
-  left: 70%;
-  opacity: .5;
-  animation-delay: -4s;
+
+@keyframes shine {
+  50% { transform: rotate(19deg) translateX(32px); }
 }
-@keyframes shimmer {
-  50% { transform: rotate(19deg) translateX(25px); }
-}
+
 .caustics {
   position: absolute;
   inset: 0;
-  opacity: .2;
-  background: repeating-radial-gradient(
-    ellipse at 25% 30%,
-    transparent 0,
-    transparent 26px,
-    #ffffff50 28px,
-    transparent 35px
-  );
+  opacity: .18;
+  background:
+    repeating-radial-gradient(
+      ellipse at 25% 30%,
+      transparent 0,
+      transparent 26px,
+      #ffffff50 28px,
+      transparent 35px
+    );
   background-size: 360px 240px;
   animation: caustics 15s linear infinite;
 }
+
 @keyframes caustics {
   to { background-position: 360px 160px; }
 }
-@media(prefers-reduced-motion:reduce) {
-  .wave, .reflection, .caustics { animation: none; }
+
+@media (prefers-reduced-motion: reduce) {
+  .water-wave, .reflection, .caustics { animation: none; }
   .water-fill { transition: none; }
 }
 """
@@ -635,15 +725,10 @@ export default function({parentElement, data}) {
   const element = parentElement.querySelector(".water-fill");
   if (!element) return;
 
-  const level = Math.max(
-    0, Math.min(100, Number(data?.level ?? 0))
-  );
+  const level = Math.max(0, Math.min(100, Number(data?.level ?? 0)));
+  const old = Number(window.__rainwaterLevel ?? 0);
 
-  const oldLevel = Number(
-    window.__rainwaterLevel ?? 0
-  );
-
-  element.style.height = `${oldLevel}%`;
+  element.style.height = `${old}%`;
 
   requestAnimationFrame(() => {
     requestAnimationFrame(() => {
@@ -654,29 +739,31 @@ export default function({parentElement, data}) {
 }
 """
 
-water_component = st.components.v2.component(
-    "rainwater_background_v3",
+water_background = component(
+    "rainwater_water_background_fixed_v1",
     html=WATER_HTML,
     css=WATER_CSS,
     js=WATER_JS,
 )
 
-selected_count = len(st.session_state.selected_scenes)
-
-water_component(
-    data={"level": selected_count / 6 * 100},
+water_background(
     key="water_background",
+    data={
+        "level": (
+            len(st.session_state.selected_scenes)
+            / len(SCENES)
+            * 100
+        )
+    },
     height=0,
 )
 
 
 # ============================================================
-# MAIN PAGE CSS
+# MAIN CSS
 # ============================================================
 
-st.markdown(
-    """
-<style>
+MAIN_CSS = """
 .stApp,
 [data-testid="stAppViewContainer"],
 [data-testid="stMain"] {
@@ -686,123 +773,357 @@ st.markdown(
 [data-testid="stMainBlockContainer"] {
   position: relative;
   z-index: 1;
-  max-width: 1220px;
+  max-width: 1240px;
   padding-top: 2rem;
   padding-bottom: 4rem;
 }
 
-.stApp h1, .stApp h2, .stApp h3 {
+.stApp h1,
+.stApp h2,
+.stApp h3 {
   color: #194e5a;
 }
 
-div[data-testid="stMetric"] {
-  padding: 15px;
-  border-radius: 15px;
-  background: rgba(255,255,255,.85);
-}
-
 [class*="st-key-panel_"] {
-  padding: 20px;
-  border-radius: 22px;
-  border: 1px solid rgba(255,255,255,.85);
-  background: rgba(255,255,255,.86);
-  box-shadow: 0 12px 30px #266a8b16;
-  backdrop-filter: blur(15px);
-  margin-bottom: 18px;
+  background: rgba(255,255,255,.88);
+  border: 1px solid rgba(255,255,255,.95);
+  border-radius: 24px;
+  padding: 22px;
+  margin-bottom: 20px;
+  box-shadow: 0 12px 30px #267a8b12;
+  backdrop-filter: blur(14px);
 }
 
-/* Scene card container */
-
-[class*="st-key-scene_box_"] {
-  border: 2px solid rgba(202,229,235,.9);
-  border-radius: 22px;
-  padding: 9px 9px 14px;
-  margin-bottom: 16px;
-  background: rgba(245,253,255,.93);
-  box-shadow: 0 6px 18px #236a8b0c;
+div[data-testid="stMetric"] {
+  padding: 13px;
+  background: #eaf8f9;
+  border: 1px solid #d3e9ee;
+  border-radius: 15px;
 }
 
-[class*="st-key-scene_box_"][class*="_on"] {
-  border-color: #35a6b0;
-  background: rgba(231,250,248,.96);
-  box-shadow: 0 10px 25px #23899a23;
-}
+/* LOCATION CARDS */
 
-/* Clickable upper part */
-
-[class*="st-key-scene_button_"] button {
+[class*="st-key-location_option_"] button {
   position: relative !important;
-  height: 154px !important;
   width: 100% !important;
-  border: none !important;
-  border-radius: 17px !important;
-  background: transparent !important;
-  color: #28586a !important;
-  font-size: 17px !important;
-  font-weight: 650 !important;
+  height: 140px !important;
+  min-height: 140px !important;
+  border-radius: 20px !important;
+  border: 2px solid #d4e8ed !important;
+  background: linear-gradient(140deg, #f3fbfc, #e9f6f4) !important;
+  color: #245b69 !important;
+  font-size: 18px !important;
+  font-weight: 700 !important;
   display: flex !important;
   align-items: flex-end !important;
-  justify-content: center !important;
-  padding-bottom: 9px !important;
+  justify-content: flex-start !important;
+  padding: 19px !important;
   cursor: pointer !important;
-  overflow: hidden !important;
-  transition: transform .25s ease !important;
 }
 
-[class*="st-key-scene_button_"] button:hover {
-  transform: translateY(-3px);
-}
-
-/* Scene icons */
-
-[class*="st-key-scene_button_"] button::before {
+[class*="st-key-location_option_"] button::before {
   position: absolute;
-  top: 12px;
-  left: 50%;
-  transform: translateX(-50%);
-  font-size: 62px;
-  pointer-events: none;
+  top: 15px;
+  left: 19px;
+  font-size: 36px;
 }
 
-[class*="st-key-scene_button_bathroom"] button::before {
-  content: "🚽";
-}
-[class*="st-key-scene_button_kitchen"] button::before {
-  content: "🚰";
-}
-[class*="st-key-scene_button_laundry"] button::before {
-  content: "🧺";
-}
-[class*="st-key-scene_button_garden"] button::before {
-  content: "🌿";
-}
-[class*="st-key-scene_button_driveway"] button::before {
-  content: "🚙";
-}
-[class*="st-key-scene_button_living"] button::before {
-  content: "🛋️";
+[class*="st-key-location_option_gps"] button::before {
+  content: "📍";
 }
 
-/* Selected check mark */
+[class*="st-key-location_option_city"] button::before {
+  content: "🌍";
+}
 
-[class*="st-key-scene_box_"][class*="_on"]::after {
+[class*="st-key-location_option_"][class*="_active"] button {
+  border-color: #299cab !important;
+  background: linear-gradient(145deg,#dcf5f7,#e5f7ed) !important;
+}
+
+[class*="st-key-location_option_"][class*="_active"]::after {
   content: "✓";
   position: absolute;
   z-index: 4;
-  top: 13px;
+  top: 14px;
   right: 14px;
-  width: 28px;
-  height: 28px;
+  width: 30px;
+  height: 30px;
   border-radius: 50%;
-  background: #2a9eaa;
   color: white;
+  background: #2b9faa;
   display: flex;
   align-items: center;
   justify-content: center;
   pointer-events: none;
 }
 
-/* Decorative animation for selected cards */
+[class*="st-key-panel_location_input"] {
+  background: #f5fbfc;
+  border: 1px solid #d6e8eb;
+  border-radius: 19px;
+  padding: 17px;
+}
+
+.location-confirmation {
+  padding: 17px;
+  border-radius: 16px;
+  background: linear-gradient(120deg,#dff6f3,#e9f8fc);
+  color: #245969;
+  margin: 15px 0;
+}
+
+.location-name {
+  font-size: 17px;
+  font-weight: 700;
+}
+
+.location-coordinates {
+  font-size: 12px;
+  color: #678b95;
+  margin-top: 6px;
+}
+
+/* WEATHER CARDS */
+
+.weather-grid {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0,1fr));
+  gap: 9px;
+  width: 100%;
+  margin: 15px 0 8px;
+}
+
+.weather-card {
+  box-sizing: border-box;
+  min-width: 0;
+  min-height: 198px;
+  padding: 12px 7px;
+  background: linear-gradient(155deg,#f0fcff,#e1f3f8);
+  border: 1px solid #d0e8ee;
+  border-radius: 17px;
+  box-shadow: 0 6px 13px #2c849512;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  transition: transform .25s ease;
+}
+
+.weather-card:hover {
+  transform: translateY(-4px);
+}
+
+.weather-card.heavy {
+  background: linear-gradient(#e5f4fa,#cbe7f1);
+  border-color: #9cd0df;
+}
+
+.weather-date {
+  font-size: 11px;
+  font-weight: 700;
+  color: #57808d;
+  white-space: nowrap;
+}
+
+.weather-visual {
+  position: relative;
+  height: 77px;
+  width: 90px;
+  margin: 9px auto 7px;
+}
+
+.cloud {
+  position: absolute;
+  top: 18px;
+  left: 18px;
+  width: 56px;
+  height: 27px;
+  background: #b1d8e5;
+  border-radius: 20px;
+  animation: floatCloud 4s ease-in-out infinite;
+  filter: drop-shadow(0 4px 6px #377b9225);
+}
+
+.cloud::before,
+.cloud::after {
+  content: "";
+  position: absolute;
+  background: inherit;
+  border-radius: 50%;
+}
+
+.cloud::before {
+  width: 30px;
+  height: 30px;
+  top: -13px;
+  left: 5px;
+}
+
+.cloud::after {
+  width: 36px;
+  height: 36px;
+  top: -19px;
+  left: 23px;
+}
+
+.weather-card.heavy .cloud { background: #729eaf; }
+.weather-card.moderate .cloud { background: #91c1cf; }
+.weather-card.dry .cloud { opacity: .6; }
+
+.rain-drops {
+  position: absolute;
+  inset: 0;
+}
+
+.rain-drop {
+  position: absolute;
+  top: 42px;
+  height: 11px;
+  width: 3px;
+  background: #35a9d3;
+  border-radius: 50%;
+  opacity: 0;
+}
+
+.rain-drop-0 { left: 24px; animation-delay: 0s !important; }
+.rain-drop-1 { left: 34px; animation-delay: -.25s !important; }
+.rain-drop-2 { left: 44px; animation-delay: -.5s !important; }
+.rain-drop-3 { left: 54px; animation-delay: -.15s !important; }
+.rain-drop-4 { left: 64px; animation-delay: -.7s !important; }
+.rain-drop-5 { left: 73px; animation-delay: -.4s !important; }
+
+.weather-card.light .rain-drop {
+  animation: fallingRain 1.6s linear infinite;
+}
+
+.weather-card.moderate .rain-drop {
+  animation: fallingRain 1.05s linear infinite;
+}
+
+.weather-card.heavy .rain-drop {
+  animation: fallingRain .65s linear infinite;
+}
+
+.weather-card.dry .rain-drop { display: none; }
+.weather-card.light .rain-drop:nth-child(n+4) { display: none; }
+.weather-card.moderate .rain-drop:nth-child(n+6) { display: none; }
+
+@keyframes fallingRain {
+  0% { transform: translateY(-8px) rotate(12deg); opacity: 0; }
+  25% { opacity: 1; }
+  100% { transform: translateY(22px) rotate(12deg); opacity: 0; }
+}
+
+@keyframes floatCloud {
+  50% { transform: translateY(-4px); }
+}
+
+.weather-amount {
+  font-size: 21px;
+  font-weight: 750;
+  color: #22788e;
+}
+
+.weather-amount span {
+  font-size: 11px;
+  font-weight: 500;
+  color: #6b98a4;
+}
+
+.weather-description {
+  font-size: 10px;
+  color: #678c98;
+  text-align: center;
+  margin: 5px 0 8px;
+}
+
+.rain-track {
+  width: 100%;
+  height: 5px;
+  border-radius: 8px;
+  background: #d2e7ec;
+  overflow: hidden;
+  margin-top: auto;
+}
+
+.rain-track > div {
+  height: 100%;
+  border-radius: 8px;
+  background: linear-gradient(90deg,#90e3ec,#299bbe);
+}
+
+/* FIXED HEIGHT SCENE CARDS */
+
+[class*="st-key-scene_box_"] {
+  position: relative;
+  height: 340px !important;
+  min-height: 340px !important;
+  max-height: 340px !important;
+  padding: 10px 14px 15px !important;
+  margin-bottom: 18px;
+  background: rgba(247,253,255,.95);
+  border: 2px solid #cde8ef;
+  border-radius: 23px;
+  box-shadow: 0 8px 25px #1a608811;
+  overflow: hidden;
+}
+
+[class*="st-key-scene_box_"][class*="_on"] {
+  border-color: #2da4af;
+  background: rgba(230,249,247,.97);
+}
+
+[class*="st-key-scene_button_"] button {
+  position: relative !important;
+  width: 100% !important;
+  height: 170px !important;
+  min-height: 170px !important;
+  background: transparent !important;
+  border: none !important;
+  border-radius: 17px !important;
+  display: flex !important;
+  align-items: flex-end !important;
+  justify-content: center !important;
+  padding-bottom: 12px !important;
+  color: #28586a !important;
+  font-size: 17px !important;
+  font-weight: 650 !important;
+  overflow: hidden !important;
+  cursor: pointer !important;
+}
+
+[class*="st-key-scene_button_"] button::before {
+  position: absolute;
+  top: 18px;
+  left: 50%;
+  transform: translateX(-50%);
+  font-size: 66px;
+  pointer-events: none;
+}
+
+[class*="st-key-scene_button_bathroom"] button::before { content:"🚽"; }
+[class*="st-key-scene_button_kitchen"] button::before { content:"🚰"; }
+[class*="st-key-scene_button_laundry"] button::before { content:"🧺"; }
+[class*="st-key-scene_button_garden"] button::before { content:"🌿"; }
+[class*="st-key-scene_button_driveway"] button::before { content:"🚙"; }
+[class*="st-key-scene_button_living"] button::before { content:"🛋️"; }
+
+[class*="st-key-scene_box_"][class*="_on"]::after {
+  content: "✓";
+  position: absolute;
+  top: 13px;
+  right: 14px;
+  z-index: 4;
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  background: #2b9faa;
+  color: white;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+}
 
 [class*="st-key-scene_button_"] button::after {
   display: none;
@@ -815,113 +1136,230 @@ div[data-testid="stMetric"] {
 [class*="st-key-scene_button_kitchen_on"] button::after {
   content: "💧";
   display: block;
-  top: 33px;
+  top: 43px;
   left: 23%;
-  animation: dropMove 2s infinite;
+  animation: sceneDrop 2s infinite;
 }
 
 [class*="st-key-scene_button_laundry_on"] button::after {
   content: "🫧";
   display: block;
-  top: 45px;
+  top: 53px;
   right: 17%;
-  animation: bubbleMove 2.8s infinite;
+  animation: sceneBubble 2.8s infinite;
 }
 
 [class*="st-key-scene_button_garden_on"] button::after,
 [class*="st-key-scene_button_driveway_on"] button::after {
   content: "💦";
   display: block;
-  top: 35px;
+  top: 45px;
   right: 17%;
-  animation: sprayMove 2.5s infinite;
+  animation: sceneSpray 2.5s infinite;
 }
 
 [class*="st-key-scene_button_living_on"] button::after {
   content: "🌱";
   display: block;
-  top: 38px;
+  top: 47px;
   right: 17%;
-  animation: swayMove 3s infinite;
+  animation: sceneSway 3s infinite;
 }
 
-@keyframes dropMove {
-  0% { transform: translateY(-9px); opacity: 0; }
-  50% { opacity: 1; }
-  100% { transform: translateY(18px); opacity: 0; }
+@keyframes sceneDrop {
+  0% { transform:translateY(-9px);opacity:0; }
+  50% { opacity:1; }
+  100% { transform:translateY(18px);opacity:0; }
 }
 
-@keyframes bubbleMove {
-  0% { transform: translateY(13px); opacity: 0; }
-  50% { opacity: 1; }
-  100% { transform: translateY(-16px); opacity: 0; }
+@keyframes sceneBubble {
+  0% { transform:translateY(13px);opacity:0; }
+  50% { opacity:1; }
+  100% { transform:translateY(-16px);opacity:0; }
 }
 
-@keyframes sprayMove {
-  50% { transform: translateX(13px); opacity: .5; }
+@keyframes sceneSpray {
+  50% { transform:translateX(13px);opacity:.5; }
 }
 
-@keyframes swayMove {
-  50% { transform: rotate(12deg); }
+@keyframes sceneSway {
+  50% { transform:rotate(12deg); }
 }
 
-/* Per-scene slider */
-
-[class*="st-key-scene_box_"] [data-testid="stSlider"] {
-  padding: 2px 12px 0;
+[class*="st-key-scene_controls_"] {
+  height: 120px !important;
+  min-height: 120px !important;
+  max-height: 120px !important;
+  padding: 8px 8px 0 !important;
+  border-top: 1px solid #83b9c344;
+  overflow: hidden;
 }
 
-[class*="st-key-scene_box_"] [data-testid="stSlider"] > div {
-  gap: 0;
-}
-
-[class*="st-key-scene_box_"] [data-testid="stSlider"] p {
-  font-size: 12px;
-  color: #347b89;
-}
-
-[class*="st-key-scene_box_"] [data-testid="stSlider"] label {
-  color: #347b89;
+.scene-reserved {
+  height: 100px;
 }
 
 .scene-amount {
+  margin-top: 7px;
   text-align: center;
-  font-size: 18px;
+  color: #227f91;
+  font-size: 19px;
   font-weight: 750;
-  color: #217c8f;
-  margin: 0;
-  padding-bottom: 3px;
 }
 
-.scene-unit {
+.scene-amount span {
   font-size: 12px;
   color: #698f99;
+  font-weight: 500;
 }
 
-.stButton button,
-div[data-testid="stFormSubmitButton"] button {
-  border-radius: 12px;
+/* Responsive */
+
+@media (max-width: 1100px) {
+  .weather-grid {
+    grid-template-columns: repeat(4, minmax(0,1fr));
+  }
 }
 
-@media(prefers-reduced-motion:reduce) {
-  [class*="st-key-scene_button_"] button,
+@media (max-width: 700px) {
+  .weather-grid {
+    grid-template-columns: repeat(2, minmax(0,1fr));
+  }
+
+  [class*="st-key-location_option_"] button {
+    height: 120px !important;
+    font-size: 13px !important;
+  }
+
+  [class*="st-key-scene_button_"] button::before {
+    font-size: 45px;
+  }
+
+  [class*="st-key-panel_"] {
+    padding: 14px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .cloud, .rain-drop,
   [class*="st-key-scene_button_"] button::after {
-    transition: none !important;
     animation: none !important;
   }
 }
-</style>
-""",
-    unsafe_allow_html=True,
-)
+"""
+
+# CSS can be rendered directly as HTML.
+# Unlike complex card HTML, this is only a style element.
+st.html("<style>" + MAIN_CSS + "</style>")
 
 
 # ============================================================
-# PAGE HEADER
+# WEATHER ANIMATED CARD HTML
+# ============================================================
+
+def render_weather_cards(dates, rainfall, fetched_at):
+    entries = list(zip(dates, rainfall))[:7]
+
+    if not entries:
+        st.info("No rainfall forecast available.")
+        return
+
+    values = [
+        max(0.0, float(amount))
+        for _, amount in entries
+    ]
+
+    total = sum(values)
+    maximum = max(values)
+
+    best_index = values.index(maximum)
+
+    if total > 0:
+        best_day = date_label(entries[best_index][0])
+    else:
+        best_day = "No rain forecast"
+
+    st.markdown("#### 🌦️ Seven-Day Rainfall Outlook")
+
+    col1, col2, col3 = st.columns(3)
+
+    col1.metric("Expected Rainfall", f"{total:.1f} mm")
+    col2.metric("Highest Rainfall Day", best_day)
+    col3.metric("Peak Daily Rainfall", f"{maximum:.1f} mm")
+
+    cards = []
+
+    for date, raw_rain in entries:
+        amount = max(0.0, float(raw_rain))
+        category, description = rain_category(amount)
+
+        percentage = (
+            amount / maximum * 100
+            if maximum > 0
+            else 0
+        )
+
+        drops = "".join(
+            f'<span class="rain-drop rain-drop-{i}"></span>'
+            for i in range(6)
+        )
+
+        # IMPORTANT:
+        # No Markdown parser is used for this HTML.
+        cards.append(
+            f"""
+            <div class="weather-card {category}">
+                <div class="weather-date">
+                    {html.escape(date_label(date))}
+                </div>
+                <div class="weather-visual">
+                    <div class="cloud"></div>
+                    <div class="rain-drops">{drops}</div>
+                </div>
+                <div class="weather-amount">
+                    {amount:g}<span> mm</span>
+                </div>
+                <div class="weather-description">
+                    {html.escape(description)}
+                </div>
+                <div class="rain-track">
+                    <div style="width:{percentage:.1f}%"></div>
+                </div>
+            </div>
+            """
+        )
+
+    weather_html = (
+        '<div class="weather-grid">'
+        + "".join(cards)
+        + "</div>"
+    )
+
+    # FIX: st.html renders the entire HTML structure.
+    # It prevents the raw rain-drop tags appearing as text.
+    st.html(weather_html)
+
+    try:
+        retrieved = datetime.fromisoformat(
+            fetched_at
+        ).strftime("%d %b %Y · %H:%M %Z").strip()
+    except ValueError:
+        retrieved = fetched_at
+
+    st.caption(
+        f"Data retrieved: {retrieved}. "
+        "Rain animations reflect forecast precipitation "
+        "amounts, not independently reported weather types."
+    )
+
+
+# ============================================================
+# HEADER
 # ============================================================
 
 left, right = st.columns(
-    [5, 1], vertical_alignment="center"
+    [5, 1],
+    vertical_alignment="center",
 )
 
 with left:
@@ -937,115 +1375,199 @@ with right:
 
 
 # ============================================================
-# 01 LOCATION
+# LOCATION SELECTION
 # ============================================================
 
 with st.container(key="panel_location"):
-
     st.subheader("01 · Your Location")
 
-    method = st.radio(
-        "Location Method",
-        ["Use My Location", "Search City"],
-        horizontal=True,
+    st.caption(
+        "Select a location to explore local rainfall "
+        "forecasts and generate your water allocation plan."
     )
 
-    location = None
+    mode = st.session_state.location_mode
 
-    if method == "Use My Location":
+    location_left, location_right = st.columns(
+        2,
+        gap="medium",
+    )
 
-        if st.button("Get My Location"):
-            st.session_state.request_location = True
+    with location_left:
+        selected = "active" if mode == "gps" else "inactive"
 
-        if st.session_state.request_location:
-            position = get_geolocation()
-
-            if isinstance(position, dict):
-                coords = position.get("coords")
-
-                if coords:
-                    st.session_state.geo_location = {
-                        "name": "Current Location",
-                        "latitude": float(
-                            coords["latitude"]
-                        ),
-                        "longitude": float(
-                            coords["longitude"]
-                        ),
-                    }
-
-            location = st.session_state.get(
-                "geo_location"
-            )
-
-            if location:
-                st.success("Location received.")
-            else:
-                st.info("Allow browser location access.")
-
-    else:
-
-        city_name = st.text_input(
-            "Search City",
-            placeholder="Tokyo, Hong Kong, London",
-        )
-
-        if st.button("Search"):
-
-            try:
-                st.session_state.city_results = (
-                    search_city(city_name)
-                )
-                st.session_state.searched_city = city_name
-
-            except (ValueError, RuntimeError) as exc:
-                st.error(str(exc))
-                st.session_state.city_results = []
-
-        results = st.session_state.get(
-            "city_results", []
-        )
-
-        if city_name != st.session_state.get(
-            "searched_city"
+        with st.container(
+            key=f"location_option_gps_{selected}"
         ):
-            results = []
-
-        if results:
-            options = {
-                (
-                    f"{item['name']}, "
-                    f"{item.get('admin1', '')}, "
-                    f"{item.get('country', '')} "
-                    f"(ID: {item['id']})"
-                ): item
-                for item in results
-            }
-
-            city_label = st.selectbox(
-                "Choose City",
-                list(options.keys()),
+            st.button(
+                "Use My Location",
+                key="location_gps",
+                use_container_width=True,
+                on_click=change_location_mode,
+                args=("gps",),
             )
 
-            location = options[city_label]
-            st.success(f"Location: {city_label}")
+    with location_right:
+        selected = "active" if mode == "city" else "inactive"
+
+        with st.container(
+            key=f"location_option_city_{selected}"
+        ):
+            st.button(
+                "Search City",
+                key="location_city",
+                use_container_width=True,
+                on_click=change_location_mode,
+                args=("city",),
+            )
+
+    with st.container(key="panel_location_input"):
+        if st.session_state.location_mode == "gps":
+            st.markdown("#### 📍 Current Location")
+
+            st.caption(
+                "Location access is requested only after "
+                "you click the button."
+            )
+
+            if st.button("Detect My Location"):
+                st.session_state.request_location = True
+
+            if st.session_state.request_location:
+                position = get_geolocation()
+
+                if isinstance(position, dict):
+                    coords = position.get("coords")
+
+                    if coords:
+                        location = {
+                            "name": "Current Location",
+                            "latitude": float(coords["latitude"]),
+                            "longitude": float(coords["longitude"]),
+                        }
+
+                        set_location(location)
+
+                if st.session_state.selected_location is None:
+                    st.info(
+                        "Please allow browser location access."
+                    )
+
+        else:
+            st.markdown("#### 🌍 Search Worldwide")
+
+            with st.form("search_form"):
+                city_input = st.text_input(
+                    "City or Region",
+                    placeholder="Tokyo, Hong Kong, London...",
+                )
+
+                submitted_search = st.form_submit_button(
+                    "Search Location",
+                    type="primary",
+                    use_container_width=True,
+                )
+
+            if submitted_search:
+                if not city_input.strip():
+                    st.warning("Please enter a city name.")
+                else:
+                    try:
+                        st.session_state.city_results = (
+                            search_city(city_input.strip())
+                        )
+
+                        st.session_state.searched_city = (
+                            city_input.strip()
+                        )
+
+                    except Exception as exc:
+                        st.error(f"Search failed: {exc}")
+                        st.session_state.city_results = []
+
+            results = st.session_state.city_results
+
+            if (
+                results
+                and city_input.strip()
+                == st.session_state.searched_city
+            ):
+                options = {}
+
+                for item in results:
+                    label = (
+                        f"{item['name']}, "
+                        f"{item.get('admin1', '')}, "
+                        f"{item.get('country', '')} "
+                        f"(ID: {item['id']})"
+                    )
+                    options[label] = item
+
+                label = st.selectbox(
+                    "Choose a Matching Location",
+                    list(options.keys()),
+                )
+
+                selected_location = options[label]
+                set_location(selected_location)
+
+            elif submitted_search and not results:
+                st.info("No matching cities were found.")
+
+    location = st.session_state.selected_location
 
     if location is not None:
-        st.session_state.selected_location = location
-    else:
-        st.session_state.pop(
-            "selected_location", None
+        lat = float(location["latitude"])
+        lon = float(location["longitude"])
+
+        # FIX: use st.html for generated HTML.
+        st.html(
+            f"""
+            <div class="location-confirmation">
+                <div class="location-name">
+                    ✓ {html.escape(str(location['name']))}
+                </div>
+                <div class="location-coordinates">
+                    Latitude: {lat:.4f}°
+                    &nbsp; · &nbsp;
+                    Longitude: {lon:.4f}°
+                </div>
+            </div>
+            """
         )
+
+        try:
+            dates, rainfall, fetched_at = load_weather(
+                lat,
+                lon,
+            )
+
+            if len(dates) != len(rainfall):
+                raise ValueError(
+                    "The returned forecast data lengths do not match."
+                )
+
+            render_weather_cards(
+                dates,
+                rainfall,
+                fetched_at,
+            )
+
+        except Exception as exc:
+            st.warning(
+                f"Rainfall preview unavailable: {exc}"
+            )
 
 
 # ============================================================
-# 02 SCENE CARDS + LEVEL SLIDERS
+# HOUSEHOLD WATER USAGE
 # ============================================================
 
 st.subheader("02 · Household Water Usage")
 
 st.caption(
-    "Select a scene, then choose its water usage level."
+    "Select a scene and set Low, Medium, "
+    "or High water demand."
 )
 
 scene_names = list(SCENES.keys())
@@ -1057,74 +1579,79 @@ for start in range(0, len(scene_names), 3):
         columns,
         scene_names[start:start + 3],
     ):
-        config = SCENES[name]
-        slug = config["slug"]
+        slug, icon, base, priority, flexible, unit = SCENES[name]
 
         chosen = name in st.session_state.selected_scenes
         state = "on" if chosen else "off"
 
         with column:
-
             with st.container(
+                height=CARD_HEIGHT,
+                border=False,
                 key=f"scene_box_{slug}_{state}",
             ):
-
                 with st.container(
-                    key=f"scene_button_{slug}_{state}",
+                    key=f"scene_button_{slug}_{state}"
                 ):
                     st.button(
                         name,
                         key=f"toggle_{slug}",
                         use_container_width=True,
-                        type="secondary",
                         on_click=toggle_scene,
                         args=(name,),
                     )
 
-                if chosen:
-                    st.select_slider(
-                        f"{name} Usage",
-                        options=["Low", "Medium", "High"],
-                        key=f"level_{slug}",
-                        on_change=invalidate_plan,
-                        label_visibility="collapsed",
-                    )
+                with st.container(
+                    key=f"scene_controls_{slug}"
+                ):
+                    if chosen:
+                        st.select_slider(
+                            f"{name} Usage",
+                            options=["Low", "Medium", "High"],
+                            key=f"level_{slug}",
+                            label_visibility="collapsed",
+                            on_change=change_level,
+                            args=(name, slug),
+                        )
 
-                    amount = scene_demand(name)
+                        demand = demand_for(name)
 
-                    st.markdown(
-                        f'<div class="scene-amount">'
-                        f'{amount:g} L'
-                        f'<span class="scene-unit">'
-                        f' / {config["unit"]}'
-                        f'</span></div>',
-                        unsafe_allow_html=True,
-                    )
+                        st.html(
+                            f"""
+                            <div class="scene-amount">
+                                {demand:g} L
+                                <span>/ {unit}</span>
+                            </div>
+                            """
+                        )
+                    else:
+                        st.html(
+                            '<div class="scene-reserved"></div>'
+                        )
 
 
 # ============================================================
-# 03 SYSTEM SETTINGS
+# WATER SYSTEM SETTINGS
 # ============================================================
+
+selected = list(st.session_state.selected_scenes)
 
 with st.container(key="panel_settings"):
-
     st.subheader("03 · Water System Settings")
 
-    selected = list(st.session_state.selected_scenes)
-
     st.caption(
-        "Water demands are controlled directly "
-        "from the scene cards above."
+        "Water demand values are selected "
+        "on the cards above."
     )
 
-    with st.form("water_form"):
-
+    with st.form("water_settings_form"):
         c1, c2 = st.columns(2)
 
         with c1:
             area = st.number_input(
                 "Collection Area (m²)",
                 min_value=1.0,
+                max_value=10000.0,
                 value=50.0,
                 step=5.0,
             )
@@ -1133,12 +1660,12 @@ with st.container(key="panel_settings"):
             capacity = st.number_input(
                 "Tank Capacity (L)",
                 min_value=10.0,
+                max_value=100000.0,
                 value=500.0,
                 step=100.0,
             )
 
         with st.expander("Advanced Settings"):
-
             efficiency = st.slider(
                 "Collection Efficiency",
                 min_value=0.1,
@@ -1150,15 +1677,17 @@ with st.container(key="panel_settings"):
             initial_storage = st.number_input(
                 "Initial Storage (L)",
                 min_value=0,
-                max_value=int(capacity),
+                max_value=100000,
                 value=0,
+                step=1,
             )
 
             reserve = st.number_input(
                 "Minimum Reserve (L)",
                 min_value=0,
-                max_value=int(capacity),
+                max_value=100000,
                 value=0,
+                step=1,
             )
 
         submitted = st.form_submit_button(
@@ -1169,35 +1698,38 @@ with st.container(key="panel_settings"):
 
 
 # ============================================================
-# 04 GENERATE PLAN
+# GENERATE PLAN
 # ============================================================
 
 if submitted:
+    invalidate_plan()
 
-    st.session_state.plan = None
-
-    location = st.session_state.get(
-        "selected_location"
-    )
+    location = st.session_state.selected_location
 
     if location is None:
         st.warning("Please select a location.")
 
     elif not selected:
-        st.warning(
-            "Please select at least one water-use scene."
+        st.warning("Please select a water-use scene.")
+
+    elif initial_storage > capacity:
+        st.error(
+            "Initial Storage cannot exceed Tank Capacity. "
+            "Please lower the initial storage or raise the capacity."
+        )
+
+    elif reserve > capacity:
+        st.error(
+            "Minimum Reserve cannot exceed Tank Capacity. "
+            "Please lower the reserve or raise the capacity."
         )
 
     else:
-
-        with st.spinner(
-            "Generating your allocation plan..."
-        ):
-
+        with st.spinner("Generating allocation plan..."):
             try:
-                dates, rainfall = get_rainfall_forecast(
-                    location["latitude"],
-                    location["longitude"],
+                dates, rainfall, _ = load_weather(
+                    float(location["latitude"]),
+                    float(location["longitude"]),
                 )
 
                 tasks = build_tasks(
@@ -1211,8 +1743,8 @@ if submitted:
                     capacity=capacity,
                     tasks=tasks,
                     efficiency=efficiency,
-                    initial_storage=initial_storage,
-                    reserve=reserve,
+                    initial_storage=int(initial_storage),
+                    reserve=int(reserve),
                 )
 
                 recommendations = generate_recommendations(
@@ -1226,6 +1758,17 @@ if submitted:
                     "recommendations": recommendations,
                     "dates": dates,
                     "location": location["name"],
+                    "params": {
+                        "area": area,
+                        "capacity": capacity,
+                        "efficiency": efficiency,
+                        "initial_storage": int(initial_storage),
+                        "reserve": int(reserve),
+                        "demands": {
+                            name: demand_for(name)
+                            for name in selected
+                        },
+                    },
                 }
 
             except Exception as exc:
@@ -1235,45 +1778,60 @@ if submitted:
 
 
 # ============================================================
-# 05 RESULTS
+# RESULTS
 # ============================================================
 
-saved = st.session_state.get("plan")
+saved = st.session_state.plan
 
 if saved is not None:
-
     comparison = saved["comparison"]
     baseline = comparison["baseline"]
     optimized = comparison["optimized"]
     dates = saved["dates"]
 
     with st.container(key="panel_results"):
-
         st.subheader("04 · Allocation Dashboard")
+
+        params = saved["params"]
 
         st.caption(
             f"Location: {saved['location']} | "
-            "Weather: Open-Meteo"
+            "Weather data: Open-Meteo"
         )
 
-        a, b, c, d = st.columns(4)
+        demands_text = " · ".join(
+            f"{name} {amount:g} L"
+            for name, amount in params["demands"].items()
+        )
 
-        a.metric(
+        st.caption(
+            f"Parameters: area {params['area']:g} m² · "
+            f"tank {params['capacity']:g} L · "
+            f"efficiency {params['efficiency']:.0%} · "
+            f"initial {params['initial_storage']} L · "
+            f"reserve {params['reserve']} L"
+        )
+
+        st.caption(f"Demand: {demands_text}")
+
+        c1, c2, c3, c4 = st.columns(4)
+
+        c1.metric(
             "Collected",
             f"{optimized['total_collected']:,.0f} L",
         )
 
-        b.metric(
+        c2.metric(
             "Allocated",
             f"{optimized['total_allocated']:,.0f} L",
         )
 
-        c.metric(
+        c3.metric(
             "Shortage",
             f"{optimized['total_shortage']:,.0f} L",
         )
 
-        d.metric(
+        c4.metric(
             "Overflow",
             f"{optimized['total_overflow']:,.0f} L",
         )
@@ -1282,17 +1840,15 @@ if saved is not None:
 
         left, right = st.columns(2)
 
-        with left:
-            st.metric(
-                "Baseline Overflow",
-                f"{baseline['total_overflow']:,.1f} L",
-            )
+        left.metric(
+            "Baseline Overflow",
+            f"{baseline['total_overflow']:,.1f} L",
+        )
 
-        with right:
-            st.metric(
-                "Optimized Overflow",
-                f"{optimized['total_overflow']:,.1f} L",
-            )
+        right.metric(
+            "Optimized Overflow",
+            f"{optimized['total_overflow']:,.1f} L",
+        )
 
         st.metric(
             "Overflow Reduction",
@@ -1300,13 +1856,9 @@ if saved is not None:
         )
 
         if comparison["schedule_changed"]:
-            st.success(
-                "An optimized schedule was found."
-            )
+            st.success("An optimized schedule was found.")
         else:
-            st.info(
-                "No schedule changes are required."
-            )
+            st.info("No schedule changes are required.")
 
         st.subheader("06 · Seven-Day Water Plan")
 
@@ -1324,9 +1876,7 @@ if saved is not None:
         st.markdown("#### Tank Storage")
 
         st.line_chart(
-            df.set_index("Date")[
-                ["Remaining (L)"]
-            ]
+            df.set_index("Date")[["Remaining (L)"]]
         )
 
         st.markdown("#### Collection and Allocation")
@@ -1340,20 +1890,17 @@ if saved is not None:
         st.subheader("07 · Smart Recommendations")
 
         for item in saved["recommendations"]:
-
-            content = (
+            message = (
                 f"**{item['title']}**\n\n"
                 f"{item['message']}"
             )
 
             if item["level"] == "success":
-                st.success(content)
-
+                st.success(message)
             elif item["level"] == "warning":
-                st.warning(content)
-
+                st.warning(message)
             else:
-                st.info(content)
+                st.info(message)
 
         st.subheader("08 · Export")
 
@@ -1366,9 +1913,8 @@ if saved is not None:
 
 
 st.caption(
-    "The background water level represents the number "
-    "of selected scenes, not actual stored rainwater. "
-    "Demand levels are illustrative estimates. "
-    "Real-world use requires suitable water treatment "
-    "and compliance with local regulations."
+    "Weather animations indicate forecast rainfall intensity. "
+    "Background water level represents the number of selected "
+    "scenes, not the actual volume of stored rainwater. "
+    "Demand estimates are illustrative."
 )
