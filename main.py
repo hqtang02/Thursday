@@ -61,6 +61,7 @@ st.session_state.setdefault("selected_location", None)
 st.session_state.setdefault("selected_scenes", ["Bathroom", "Garden", "Laundry"])
 st.session_state.setdefault("usage_levels", {})
 st.session_state.setdefault("plan", None)
+st.session_state.setdefault("show_results", False)
 st.session_state.setdefault("city_results", [])
 st.session_state.setdefault("searched_city", "")
 st.session_state.setdefault("request_location", False)
@@ -1375,6 +1376,154 @@ with right:
 
 
 # ============================================================
+# RESULTS VIEW
+# ============================================================
+
+show_results = (
+    st.session_state.show_results
+    and st.session_state.plan is not None
+)
+
+if show_results:
+    if st.button(
+        "← Back to Settings",
+        key="back_to_settings",
+    ):
+        st.session_state.show_results = False
+        st.rerun()
+
+    saved = st.session_state.plan
+    comparison = saved["comparison"]
+    baseline = comparison["baseline"]
+    optimized = comparison["optimized"]
+    dates = saved["dates"]
+
+    with st.container(key="panel_results"):
+        st.subheader("04 · Allocation Dashboard")
+
+        params = saved["params"]
+
+        st.caption(
+            f"Location: {saved['location']} | "
+            "Weather data: Open-Meteo"
+        )
+
+        demands_text = " · ".join(
+            f"{name} {amount:g} L"
+            for name, amount in params["demands"].items()
+        )
+
+        st.caption(
+            f"Parameters: area {params['area']:g} m² · "
+            f"tank {params['capacity']:g} L · "
+            f"efficiency {params['efficiency']:.0%} · "
+            f"initial {params['initial_storage']} L · "
+            f"reserve {params['reserve']} L"
+        )
+
+        st.caption(f"Demand: {demands_text}")
+
+        c1, c2, c3, c4 = st.columns(4)
+
+        c1.metric(
+            "Collected",
+            f"{optimized['total_collected']:,.0f} L",
+        )
+
+        c2.metric(
+            "Allocated",
+            f"{optimized['total_allocated']:,.0f} L",
+        )
+
+        c3.metric(
+            "Shortage",
+            f"{optimized['total_shortage']:,.0f} L",
+        )
+
+        c4.metric(
+            "Overflow",
+            f"{optimized['total_overflow']:,.0f} L",
+        )
+
+        st.subheader("05 · Optimization")
+
+        left, right = st.columns(2)
+
+        left.metric(
+            "Baseline Overflow",
+            f"{baseline['total_overflow']:,.1f} L",
+        )
+
+        right.metric(
+            "Optimized Overflow",
+            f"{optimized['total_overflow']:,.1f} L",
+        )
+
+        st.metric(
+            "Overflow Reduction",
+            f"{comparison['overflow_reduction']:,.1f} L",
+        )
+
+        if comparison["schedule_changed"]:
+            st.success("An optimized schedule was found.")
+        else:
+            st.info("No schedule changes are required.")
+
+        st.subheader("06 · Seven-Day Water Plan")
+
+        df = make_daily_table(
+            optimized,
+            dates,
+        )
+
+        st.dataframe(
+            df,
+            use_container_width=True,
+            hide_index=True,
+        )
+
+        st.markdown("#### Tank Storage")
+
+        st.line_chart(
+            df.set_index("Date")[["Remaining (L)"]]
+        )
+
+        st.markdown("#### Collection and Allocation")
+
+        st.bar_chart(
+            df.set_index("Date")[
+                ["Collected (L)", "Allocated (L)"]
+            ]
+        )
+
+        st.subheader("07 · Smart Recommendations")
+
+        for item in saved["recommendations"]:
+            message = (
+                f"**{item['title']}**\n\n"
+                f"{item['message']}"
+            )
+
+            if item["level"] == "success":
+                st.success(message)
+            elif item["level"] == "warning":
+                st.warning(message)
+            else:
+                st.info(message)
+
+        st.subheader("08 · Export")
+
+        st.download_button(
+            "Download Allocation Plan",
+            data=df.to_csv(index=False).encode("utf-8-sig"),
+            file_name="rainwater_plan.csv",
+            mime="text/csv",
+        )
+
+    st.stop()
+
+
+# ============================================================
 # LOCATION SELECTION
 # ============================================================
 
@@ -1560,10 +1709,73 @@ with st.container(key="panel_location"):
 
 
 # ============================================================
+# WATER SYSTEM SETTINGS
+# ============================================================
+
+with st.container(key="panel_settings"):
+    st.subheader("02 · Water System Settings")
+
+    st.caption(
+        "Water demand values are selected "
+        "on the cards below."
+    )
+
+    c1, c2 = st.columns(2)
+
+    with c1:
+        area = st.number_input(
+            "Collection Area (m²)",
+            min_value=1.0,
+            max_value=10000.0,
+            value=50.0,
+            step=5.0,
+            on_change=invalidate_plan,
+        )
+
+    with c2:
+        capacity = st.number_input(
+            "Tank Capacity (L)",
+            min_value=10.0,
+            max_value=100000.0,
+            value=500.0,
+            step=100.0,
+            on_change=invalidate_plan,
+        )
+
+    with st.expander("Advanced Settings"):
+        efficiency = st.slider(
+            "Collection Efficiency",
+            min_value=0.1,
+            max_value=1.0,
+            value=0.8,
+            step=0.05,
+            on_change=invalidate_plan,
+        )
+
+        initial_storage = st.number_input(
+            "Initial Storage (L)",
+            min_value=0,
+            max_value=100000,
+            value=0,
+            step=1,
+            on_change=invalidate_plan,
+        )
+
+        reserve = st.number_input(
+            "Minimum Reserve (L)",
+            min_value=0,
+            max_value=100000,
+            value=0,
+            step=1,
+            on_change=invalidate_plan,
+        )
+
+
+# ============================================================
 # HOUSEHOLD WATER USAGE
 # ============================================================
 
-st.subheader("02 · Household Water Usage")
+st.subheader("03 · Household Water Usage")
 
 st.caption(
     "Select a scene and set Low, Medium, "
@@ -1630,76 +1842,18 @@ for start in range(0, len(scene_names), 3):
                         )
 
 
-# ============================================================
-# WATER SYSTEM SETTINGS
-# ============================================================
-
 selected = list(st.session_state.selected_scenes)
-
-with st.container(key="panel_settings"):
-    st.subheader("03 · Water System Settings")
-
-    st.caption(
-        "Water demand values are selected "
-        "on the cards above."
-    )
-
-    with st.form("water_settings_form"):
-        c1, c2 = st.columns(2)
-
-        with c1:
-            area = st.number_input(
-                "Collection Area (m²)",
-                min_value=1.0,
-                max_value=10000.0,
-                value=50.0,
-                step=5.0,
-            )
-
-        with c2:
-            capacity = st.number_input(
-                "Tank Capacity (L)",
-                min_value=10.0,
-                max_value=100000.0,
-                value=500.0,
-                step=100.0,
-            )
-
-        with st.expander("Advanced Settings"):
-            efficiency = st.slider(
-                "Collection Efficiency",
-                min_value=0.1,
-                max_value=1.0,
-                value=0.8,
-                step=0.05,
-            )
-
-            initial_storage = st.number_input(
-                "Initial Storage (L)",
-                min_value=0,
-                max_value=100000,
-                value=0,
-                step=1,
-            )
-
-            reserve = st.number_input(
-                "Minimum Reserve (L)",
-                min_value=0,
-                max_value=100000,
-                value=0,
-                step=1,
-            )
-
-        submitted = st.form_submit_button(
-            "Generate Smart Plan",
-            type="primary",
-            use_container_width=True,
-        )
 
 
 # ============================================================
 # GENERATE PLAN
 # ============================================================
+
+submitted = st.button(
+    "Generate Smart Plan",
+    type="primary",
+    use_container_width=True,
+)
 
 if submitted:
     invalidate_plan()
@@ -1775,141 +1929,9 @@ if submitted:
                 st.error(
                     f"Calculation failed: {exc}"
                 )
-
-
-# ============================================================
-# RESULTS
-# ============================================================
-
-saved = st.session_state.plan
-
-if saved is not None:
-    comparison = saved["comparison"]
-    baseline = comparison["baseline"]
-    optimized = comparison["optimized"]
-    dates = saved["dates"]
-
-    with st.container(key="panel_results"):
-        st.subheader("04 · Allocation Dashboard")
-
-        params = saved["params"]
-
-        st.caption(
-            f"Location: {saved['location']} | "
-            "Weather data: Open-Meteo"
-        )
-
-        demands_text = " · ".join(
-            f"{name} {amount:g} L"
-            for name, amount in params["demands"].items()
-        )
-
-        st.caption(
-            f"Parameters: area {params['area']:g} m² · "
-            f"tank {params['capacity']:g} L · "
-            f"efficiency {params['efficiency']:.0%} · "
-            f"initial {params['initial_storage']} L · "
-            f"reserve {params['reserve']} L"
-        )
-
-        st.caption(f"Demand: {demands_text}")
-
-        c1, c2, c3, c4 = st.columns(4)
-
-        c1.metric(
-            "Collected",
-            f"{optimized['total_collected']:,.0f} L",
-        )
-
-        c2.metric(
-            "Allocated",
-            f"{optimized['total_allocated']:,.0f} L",
-        )
-
-        c3.metric(
-            "Shortage",
-            f"{optimized['total_shortage']:,.0f} L",
-        )
-
-        c4.metric(
-            "Overflow",
-            f"{optimized['total_overflow']:,.0f} L",
-        )
-
-        st.subheader("05 · Optimization")
-
-        left, right = st.columns(2)
-
-        left.metric(
-            "Baseline Overflow",
-            f"{baseline['total_overflow']:,.1f} L",
-        )
-
-        right.metric(
-            "Optimized Overflow",
-            f"{optimized['total_overflow']:,.1f} L",
-        )
-
-        st.metric(
-            "Overflow Reduction",
-            f"{comparison['overflow_reduction']:,.1f} L",
-        )
-
-        if comparison["schedule_changed"]:
-            st.success("An optimized schedule was found.")
-        else:
-            st.info("No schedule changes are required.")
-
-        st.subheader("06 · Seven-Day Water Plan")
-
-        df = make_daily_table(
-            optimized,
-            dates,
-        )
-
-        st.dataframe(
-            df,
-            use_container_width=True,
-            hide_index=True,
-        )
-
-        st.markdown("#### Tank Storage")
-
-        st.line_chart(
-            df.set_index("Date")[["Remaining (L)"]]
-        )
-
-        st.markdown("#### Collection and Allocation")
-
-        st.bar_chart(
-            df.set_index("Date")[
-                ["Collected (L)", "Allocated (L)"]
-            ]
-        )
-
-        st.subheader("07 · Smart Recommendations")
-
-        for item in saved["recommendations"]:
-            message = (
-                f"**{item['title']}**\n\n"
-                f"{item['message']}"
-            )
-
-            if item["level"] == "success":
-                st.success(message)
-            elif item["level"] == "warning":
-                st.warning(message)
             else:
-                st.info(message)
-
-        st.subheader("08 · Export")
-
-        st.download_button(
-            "Download Allocation Plan",
-            data=df.to_csv(index=False).encode("utf-8-sig"),
-            file_name="rainwater_plan.csv",
-            mime="text/csv",
-        )
+                st.session_state.show_results = True
+                st.rerun()
 
 
 st.caption(
