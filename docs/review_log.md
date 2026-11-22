@@ -24,7 +24,7 @@
 - `?city=invalid` 会在结果页 `cities[city_key]` 处抛 KeyError；
 - 引擎中 `effective_target = target`，drought_mode 全程未参与计算，且既有测试固化了这一行为。
 
-### 处理：全部修复（commit `fdc378e`）
+### 处理：全部修复（commit `f4c8b0b`）
 
 1. 城市选择器只列出拥有本地水价表的城市，北京不再可选（其降水数据保留，干旱预警引擎与测试不受影响）；
 2. `_normalise_brackets` 拒绝中间档为 null 的阶梯表并给出明确报错；
@@ -49,7 +49,7 @@
 
 ### 人工复核与处理
 
-属实：截断行为会让畸形参数产生看似合法的状态。修复为 `int(raw)` 严格解析，非法值抛出 ValueError 后由外层捕获静默忽略（commit `5d6bbf4`）。46 个测试全部通过。
+属实：截断行为会让畸形参数产生看似合法的状态。修复为 `int(raw)` 严格解析，非法值抛出 ValueError 后由外层捕获静默忽略（commit `b09a4a9`）。46 个测试全部通过。
 
 ---
 
