@@ -305,11 +305,11 @@ class TestConservationPlan:
         total = sum(item["savings"] for item in plan["selected_measures"])
         assert total == pytest.approx(plan["projected_savings"], abs=1e-9)
 
-    def test_drought_mode_keeps_requested_target(self, family_usage: Dict[str, Any]) -> None:
+    def test_drought_mode_adds_safety_margin(self, family_usage: Dict[str, Any]) -> None:
         usage = analyze_usage_breakdown(family_usage)["total_m3"]
         plan = generate_conservation_plan(usage, 20.0, True)
         assert plan["drought_mode"] is True
-        assert plan["effective_target"] == pytest.approx(20.0)
+        assert plan["effective_target"] == pytest.approx(22.0)
         assert plan["projected_savings"] >= plan["effective_target"]
 
     def test_unachievable_target_is_flagged(self, family_usage: Dict[str, Any]) -> None:
@@ -395,6 +395,18 @@ class TestValidation:
     def test_empty_brackets_raises(self) -> None:
         with pytest.raises(ValueError, match="阶梯水价表"):
             calculate_tiered_bill(10.0, [])
+
+    def test_mid_table_null_bracket_rejected(self) -> None:
+        with pytest.raises(ValueError, match="只允许出现在最后一档"):
+            calculate_tiered_bill(
+                10.0,
+                [
+                    {"up_to_m3": 12.0, "rate_per_m3": 0.0},
+                    {"up_to_m3": None, "rate_per_m3": 4.16},
+                    {"up_to_m3": 62.0, "rate_per_m3": 6.45},
+                    {"up_to_m3": None, "rate_per_m3": 9.05},
+                ],
+            )
 
     def test_non_increasing_brackets_raises(self) -> None:
         with pytest.raises(ValueError, match="递增"):
