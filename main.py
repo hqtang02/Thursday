@@ -80,6 +80,11 @@ def invalidate_plan():
     st.session_state.plan = None
 
 
+def set_efficiency_preset(value):
+    st.session_state.ws_eff = value
+    invalidate_plan()
+
+
 def enter_app():
     st.session_state.entered = True
 
@@ -769,6 +774,15 @@ MAIN_CSS = """
 [data-testid="stAppViewContainer"],
 [data-testid="stMain"] {
   background: transparent !important;
+}
+
+[data-testid="stHeader"],
+[data-testid="stToolbar"] {
+  background: transparent !important;
+}
+
+[data-testid="stHeader"]::before {
+  display: none !important;
 }
 
 [data-testid="stMainBlockContainer"] {
@@ -1709,46 +1723,424 @@ with st.container(key="panel_location"):
 
 
 # ============================================================
+# SYSTEM SCHEMATIC COMPONENT
+# ============================================================
+
+SCHEMATIC_HTML = """
+<svg id="schematic" viewBox="0 0 500 430" preserveAspectRatio="xMidYMid meet" role="img" aria-label="Rainwater system schematic">
+  <defs>
+    <linearGradient id="rooffill" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#d2e4ea"></stop>
+      <stop offset="50%" stop-color="#a4c2cf"></stop>
+      <stop offset="100%" stop-color="#7fa5b7"></stop>
+    </linearGradient>
+    <linearGradient id="waterfill" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="rgba(96,186,220,0.5)"></stop>
+      <stop offset="100%" stop-color="rgba(32,132,178,0.72)"></stop>
+    </linearGradient>
+    <linearGradient id="surfacefill" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="rgba(198,239,248,0.95)"></stop>
+      <stop offset="100%" stop-color="rgba(126,206,230,0.9)"></stop>
+    </linearGradient>
+    <pattern id="rivets" width="26" height="20" patternUnits="userSpaceOnUse">
+      <circle cx="13" cy="10" r="1.4" fill="rgba(255,255,255,0.55)"></circle>
+    </pattern>
+    <pattern id="hatch" width="7" height="7" patternTransform="rotate(45)" patternUnits="userSpaceOnUse">
+      <rect width="7" height="7" fill="rgba(190,60,70,0.05)"></rect>
+      <line x1="0" y1="0" x2="0" y2="7" stroke="rgba(190,60,70,0.32)" stroke-width="1.6"></line>
+    </pattern>
+    <clipPath id="tankclip">
+      <path d="M 221 228 L 379 228 L 379 390 A 79 16 0 0 1 221 390 Z"></path>
+    </clipPath>
+  </defs>
+
+  <ellipse cx="300" cy="406" rx="88" ry="9" fill="rgba(25,78,90,0.07)"></ellipse>
+
+  <g id="rain" fill="#7cc3e0">
+    <ellipse class="drop" style="animation-delay:0s" cx="150" cy="40" rx="2.2" ry="4.2"></ellipse>
+    <ellipse class="drop" style="animation-delay:-.5s" cx="190" cy="30" rx="2.2" ry="4.2"></ellipse>
+    <ellipse class="drop" style="animation-delay:-1.1s" cx="230" cy="44" rx="2.2" ry="4.2"></ellipse>
+    <ellipse class="drop" style="animation-delay:-.3s" cx="270" cy="28" rx="2.2" ry="4.2"></ellipse>
+    <ellipse class="drop" style="animation-delay:-.8s" cx="310" cy="42" rx="2.2" ry="4.2"></ellipse>
+    <ellipse class="drop" style="animation-delay:-1.4s" cx="345" cy="32" rx="2.2" ry="4.2"></ellipse>
+  </g>
+
+  <polygon id="roofside" points="60,150 210,130 210,139 60,159" fill="#5d8799"></polygon>
+  <polygon id="roof" points="60,150 88,92 238,72 210,130" fill="url(#rooffill)" stroke="#6d96ab" stroke-width="1.8" stroke-linejoin="round"></polygon>
+  <polygon id="roofdots" points="60,150 88,92 238,72 210,130" fill="url(#rivets)" pointer-events="none"></polygon>
+  <polyline id="roofedge" points="88,92 238,72" fill="none" stroke="rgba(255,255,255,0.6)" stroke-width="2" pointer-events="none"></polyline>
+  <text id="arealabel" x="252" y="90" font-size="12.5" font-weight="600">Collection Area (50 m²)</text>
+
+  <path id="loss" d="M 210 214 V 252" fill="none" stroke="#9db4be" stroke-width="2.5" stroke-dasharray="4 6" stroke-linecap="round"></path>
+  <path id="pipe" d="M 210 136 V 202 Q 210 212 220 212 L 228 212" fill="none" stroke="#2b9faa" stroke-width="6" stroke-linecap="round"></path>
+  <line id="trickle" x1="228" y1="214" x2="228" y2="238" stroke="#2b9faa" stroke-width="4" stroke-dasharray="3 5" stroke-linecap="round" opacity="0.75"></line>
+  <text id="collectedlabel" x="200" y="188" font-size="12.5" font-weight="600" text-anchor="end">80% collected</text>
+  <text id="losslabel" x="200" y="208" font-size="11.5" text-anchor="end">20% loss</text>
+
+  <rect x="225" y="245" width="150" height="145" fill="rgba(255,255,255,0.3)"></rect>
+  <ellipse cx="300" cy="390" rx="75" ry="13" fill="rgba(255,255,255,0.3)"></ellipse>
+
+  <g clip-path="url(#tankclip)">
+    <rect id="water" x="221" y="390" width="158" height="16" fill="url(#waterfill)" style="display:none"></rect>
+    <rect id="reservezone" x="221" y="390" width="158" height="0" fill="url(#hatch)"></rect>
+    <ellipse id="watersurface" cx="300" cy="390" rx="75" ry="13" fill="url(#surfacefill)" style="display:none"></ellipse>
+  </g>
+
+  <rect x="237" y="256" width="13" height="122" rx="6.5" fill="rgba(255,255,255,0.45)" pointer-events="none"></rect>
+
+  <ellipse cx="300" cy="245" rx="75" ry="13" fill="rgba(246,252,253,0.55)" stroke="#2f6475" stroke-width="2"></ellipse>
+  <line x1="225" y1="245" x2="225" y2="390" stroke="#2f6475" stroke-width="2"></line>
+  <line x1="375" y1="245" x2="375" y2="390" stroke="#2f6475" stroke-width="2"></line>
+  <path d="M 225 390 A 75 13 0 0 0 375 390" fill="none" stroke="#2f6475" stroke-width="2"></path>
+
+  <ellipse id="reserveline" cx="300" cy="390" rx="75" ry="13" fill="none" stroke="#c2454f" stroke-width="1.8" stroke-dasharray="6 5" style="display:none"></ellipse>
+
+  <text id="initiallabel" x="384" y="394" font-size="11.5" font-weight="600" style="display:none">Initial Storage</text>
+  <text id="reservelabel" x="384" y="394" font-size="11.5" font-weight="600" style="display:none">Minimum Reserve</text>
+
+  <rect id="dragzone" x="221" y="230" width="158" height="175" fill="transparent" style="cursor: ns-resize;"></rect>
+  <text id="draghint" x="300" y="322" font-size="11" fill="rgba(25,78,90,0.38)" text-anchor="middle" pointer-events="none">drag water level</text>
+</svg>
+"""
+
+SCHEMATIC_CSS = """
+:host { display: block; }
+#schematic {
+  width: 100%;
+  height: 100%;
+  display: block;
+  background: linear-gradient(180deg, #ffffff, #f2fafb);
+  border: 1px solid #ddeef2;
+  border-radius: 18px;
+}
+#schematic text { font-family: inherit; fill: #194e5a; }
+#collectedlabel { fill: #2b9faa; }
+#losslabel { fill: #7e97a2; }
+#initiallabel { fill: #22788e; }
+#reservelabel { fill: #d32f2f; }
+.drop { animation: schematicRain 1.9s linear infinite; }
+@keyframes schematicRain {
+  0% { transform: translateY(-8px); opacity: 0; }
+  30% { opacity: .95; }
+  100% { transform: translateY(30px); opacity: 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .drop { animation: none; }
+}
+"""
+
+SCHEMATIC_JS = """
+export default function({parentElement, data, setTriggerValue}) {
+  const svg = parentElement.querySelector("#schematic");
+  if (!svg) return;
+  const $ = (id) => parentElement.querySelector("#" + id);
+
+  const RIMY = 245, BOTY = 390, FLOORY = 406;
+  const H = BOTY - RIMY;
+  const TANK_LEFT = 225;
+  const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+
+  function render(d) {
+    const area = clamp(Number(d.area) || 50, 1, 10000);
+    const cap = Math.max(1, Number(d.capacity) || 500);
+    const eff = clamp(Number(d.efficiency) || 0, 0, 1);
+    const init = clamp(Number(d.initial) || 0, 0, cap);
+    const reserve = clamp(Number(d.reserve) || 0, 0, cap);
+
+    // roof panel scales with collection area
+    const W = clamp(150 + (area - 1) / 149 * 80, 150, 230);
+    const face = `60,150 88,92 ${88 + W},72 ${60 + W},130`;
+    $("roof").setAttribute("points", face);
+    $("roofdots").setAttribute("points", face);
+    $("roofside").setAttribute(
+      "points",
+      `60,150 ${60 + W},130 ${60 + W},139 60,159`
+    );
+    $("roofedge").setAttribute("points", `88,92 ${88 + W},72`);
+
+    const areaLabel = $("arealabel");
+    areaLabel.setAttribute("x", String(88 + W + 14));
+    areaLabel.textContent = `Collection Area (${Math.round(area)} m²)`;
+
+    // downpipe from roof corner, splitting into collected / loss
+    const xp = 60 + W;
+    const endX = TANK_LEFT + 3;
+    let pipePath;
+    if (Math.abs(endX - xp) < 14) {
+      pipePath = `M ${xp} 136 V 212 L ${endX} 212`;
+    } else {
+      const dir = endX > xp ? 1 : -1;
+      pipePath =
+        `M ${xp} 136 V 202 Q ${xp} 212 ${xp + dir * 10} 212 L ${endX} 212`;
+    }
+    const pipe = $("pipe");
+    pipe.setAttribute("d", pipePath);
+    pipe.setAttribute("stroke-width", (2.5 + eff * 5).toFixed(1));
+    pipe.setAttribute("stroke-opacity", (0.45 + eff * 0.55).toFixed(2));
+
+    $("trickle").setAttribute(
+      "stroke-opacity",
+      (0.25 + eff * 0.6).toFixed(2)
+    );
+
+    const loss = $("loss");
+    loss.setAttribute("d", `M ${xp} 214 V 252`);
+    loss.setAttribute(
+      "stroke-opacity",
+      (0.15 + (1 - eff) * 0.85).toFixed(2)
+    );
+
+    const collected = $("collectedlabel");
+    collected.textContent = `${Math.round(eff * 100)}% collected`;
+    collected.setAttribute("x", String(xp - 12));
+
+    const lossLabel = $("losslabel");
+    lossLabel.textContent = `${Math.round((1 - eff) * 100)}% loss`;
+    lossLabel.setAttribute("x", String(xp - 12));
+
+    setWater(init, reserve, cap);
+  }
+
+  function setWater(init, reserve, cap) {
+    const wy = BOTY - clamp(init / cap, 0, 1) * H;
+    const showWater = init > 0;
+    const water = $("water");
+    water.setAttribute("y", String(wy));
+    water.setAttribute("height", String(FLOORY - wy));
+    water.style.display = showWater ? "" : "none";
+    const surface = $("watersurface");
+    surface.setAttribute("cy", String(wy));
+    surface.style.display = showWater ? "" : "none";
+
+    const rh = clamp(reserve / cap, 0, 1) * H;
+    const ry = BOTY - rh;
+    const showReserve = reserve > 0;
+    const zone = $("reservezone");
+    zone.setAttribute("y", String(ry));
+    zone.setAttribute("height", String(FLOORY - ry));
+    zone.style.display = showReserve ? "" : "none";
+    const line = $("reserveline");
+    line.setAttribute("cy", String(ry));
+    line.style.display = showReserve ? "" : "none";
+
+    // keep the two side labels from overlapping each other
+    const initialLabel = $("initiallabel");
+    const reserveLabel = $("reservelabel");
+    let yi = clamp(wy + 4, RIMY + 13, BOTY - 2);
+    let yr = clamp(ry + 4, RIMY + 13, BOTY - 2);
+    if (showWater && showReserve && Math.abs(yi - yr) < 14) {
+      if (wy <= ry) yr = Math.min(yi + 14, BOTY + 2);
+      else yi = Math.min(yr + 14, BOTY + 2);
+    }
+    initialLabel.setAttribute("y", String(yi));
+    initialLabel.style.display = showWater ? "" : "none";
+    reserveLabel.setAttribute("y", String(yr));
+    reserveLabel.style.display = showReserve ? "" : "none";
+  }
+
+  render(data || {});
+
+  const zone = $("dragzone");
+  const cap0 = Math.max(1, Number((data || {}).capacity) || 500);
+  const reserve0 = clamp(Number((data || {}).reserve) || 0, 0, cap0);
+  let dragging = false;
+
+  function litersFromEvent(e) {
+    const rect = svg.getBoundingClientRect();
+    const y = (e.clientY - rect.top) * (430 / rect.height);
+    return clamp((BOTY - y) / H, 0, 1) * cap0;
+  }
+
+  zone.addEventListener("pointerdown", (e) => {
+    dragging = true;
+    zone.setPointerCapture(e.pointerId);
+    setWater(litersFromEvent(e), reserve0, cap0);
+    e.preventDefault();
+  });
+  zone.addEventListener("pointermove", (e) => {
+    if (dragging) setWater(litersFromEvent(e), reserve0, cap0);
+  });
+  zone.addEventListener("pointerup", (e) => {
+    if (!dragging) return;
+    dragging = false;
+    setTriggerValue("level", Math.round(litersFromEvent(e)));
+  });
+}
+"""
+
+system_schematic = component(
+    "rainwater_system_schematic_v1",
+    html=SCHEMATIC_HTML,
+    css=SCHEMATIC_CSS,
+    js=SCHEMATIC_JS,
+)
+
+
+# ============================================================
 # WATER SYSTEM SETTINGS
 # ============================================================
+
+# Clamp storage/reserve widget state whenever tank capacity shrinks.
+_capacity_state = float(st.session_state.get("ws_capacity", 500.0))
+for _state_key in ("ws_init", "ws_reserve"):
+    if _state_key in st.session_state:
+        st.session_state[_state_key] = max(
+            0, min(int(st.session_state[_state_key]), int(_capacity_state))
+        )
 
 with st.container(key="panel_settings"):
     st.subheader("02 · Water System Settings")
 
     st.caption(
-        "Water demand values are selected "
-        "on the cards below."
+        "Drag the water level in the schematic or tune the controls. "
+        "Water demand values are selected on the cards below."
     )
 
-    c1, c2 = st.columns(2)
+    schem_col, ctrl_col = st.columns([11, 10], gap="large")
 
-    with c1:
+    with schem_col:
+        schematic_result = system_schematic(
+            key="system_schematic",
+            data={
+                "area": float(st.session_state.get("ws_area", 50.0)),
+                "capacity": float(st.session_state.get("ws_capacity", 500.0)),
+                "efficiency": float(st.session_state.get("ws_eff", 0.8)),
+                "initial": float(st.session_state.get("ws_init", 0)),
+                "reserve": float(st.session_state.get("ws_reserve", 0)),
+            },
+            height=440,
+            on_level_change=lambda: None,
+        )
+
+        _area_now = float(st.session_state.get("ws_area", 50.0))
+        _cap_now = float(st.session_state.get("ws_capacity", 500.0))
+        _eff_now = float(st.session_state.get("ws_eff", 0.8))
+        _init_now = float(st.session_state.get("ws_init", 0))
+        _res_now = float(st.session_state.get("ws_reserve", 0))
+
+        _per_10mm = _area_now * 10.0 * _eff_now
+        _tank_pct = (_per_10mm / _cap_now * 100.0) if _cap_now else 0.0
+        _usable = max(0.0, _init_now - _res_now)
+
+        st.html(
+            """
+            <style>
+            .kpi-pills {
+              display: flex;
+              gap: 10px;
+              flex-wrap: wrap;
+              margin-top: 10px;
+              font-family: inherit;
+            }
+            .kpi-pill {
+              padding: 9px 16px;
+              background: #ffffff;
+              border: 1px solid #cfe6ec;
+              border-radius: 999px;
+              font-size: 13px;
+              color: #57808d;
+            }
+            .kpi-pill strong { color: #194e5a; }
+            .kpi-pill.kpi-accent {
+              border-color: #2b9faa;
+              box-shadow: 0 0 0 1px #2b9faa33;
+            }
+            </style>
+            <div class="kpi-pills">
+              <div class="kpi-pill kpi-accent">
+                Per 10mm rain:
+                <strong>"""
+            f"{_per_10mm:,.0f} L"
+            "</strong> ("
+            f"{_tank_pct:.0f}% of tank"
+            """)</div>
+              <div class="kpi-pill">
+                Usable Water:
+                <strong>"""
+            f"{_usable:,.0f} L"
+            """</strong></div>
+            </div>
+            """
+        )
+
+    with ctrl_col:
+        dragged_level = schematic_result.get("level")
+        if dragged_level is not None:
+            st.session_state.ws_init = int(
+                max(0.0, min(_capacity_state, float(dragged_level)))
+            )
+            invalidate_plan()
+            st.rerun()
+
         area = st.number_input(
             "Collection Area (m²)",
             min_value=1.0,
             max_value=10000.0,
             value=50.0,
             step=5.0,
+            key="ws_area",
             on_change=invalidate_plan,
         )
+        st.caption(f"≈ {area / 50.0:.1f} × a small detached-house roof")
 
-    with c2:
         capacity = st.number_input(
             "Tank Capacity (L)",
             min_value=10.0,
             max_value=100000.0,
             value=500.0,
             step=100.0,
+            key="ws_capacity",
             on_change=invalidate_plan,
         )
+        st.caption(f"≈ {capacity / 200.0:.1f} bathtubs")
 
-    with st.expander("Advanced Settings"):
+        st.markdown("**Collection Efficiency**")
+
+        _eff_current = float(st.session_state.get("ws_eff", 0.8))
+
+        preset1, preset2, preset3 = st.columns(3)
+        preset1.button(
+            "Metal/Tile 0.90",
+            use_container_width=True,
+            type=(
+                "primary"
+                if abs(_eff_current - 0.9) < 1e-9
+                else "secondary"
+            ),
+            on_click=set_efficiency_preset,
+            args=(0.9,),
+        )
+        preset2.button(
+            "Concrete 0.80",
+            use_container_width=True,
+            type=(
+                "primary"
+                if abs(_eff_current - 0.8) < 1e-9
+                else "secondary"
+            ),
+            on_click=set_efficiency_preset,
+            args=(0.8,),
+        )
+        preset3.button(
+            "Green roof 0.60",
+            use_container_width=True,
+            type=(
+                "primary"
+                if abs(_eff_current - 0.6) < 1e-9
+                else "secondary"
+            ),
+            on_click=set_efficiency_preset,
+            args=(0.6,),
+        )
+
         efficiency = st.slider(
             "Collection Efficiency",
-            min_value=0.1,
+            min_value=0.0,
             max_value=1.0,
             value=0.8,
             step=0.05,
+            key="ws_eff",
+            label_visibility="collapsed",
             on_change=invalidate_plan,
         )
 
@@ -1758,6 +2150,7 @@ with st.container(key="panel_settings"):
             max_value=100000,
             value=0,
             step=1,
+            key="ws_init",
             on_change=invalidate_plan,
         )
 
@@ -1767,6 +2160,7 @@ with st.container(key="panel_settings"):
             max_value=100000,
             value=0,
             step=1,
+            key="ws_reserve",
             on_change=invalidate_plan,
         )
 
