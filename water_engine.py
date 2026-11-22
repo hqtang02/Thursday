@@ -121,6 +121,11 @@ def _normalise_brackets(
 
         upper_raw = bracket["up_to_m3"]
         if upper_raw is None:
+            if index != len(tariff_brackets):
+                raise ValueError(
+                    f"第 {index} 档为 null（无上限），只允许出现在最后一档，"
+                    "否则后续档位会被静默忽略。"
+                )
             upper: Optional[float] = None
         else:
             upper = _validate_number(
@@ -610,7 +615,8 @@ def generate_conservation_plan(
         "billing_cycle_days", config["meta"]["billing_cycle_days"]
     )
     measures = config["conservation_measures"]
-    effective_target = target
+    # 供水紧张期自动收紧 10% 安全边际，与界面提示一致。
+    effective_target = target * 1.1 if drought_mode else target
 
     current_bill = calculate_tiered_bill(usage, brackets)["total_bill"]
 

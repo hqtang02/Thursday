@@ -607,10 +607,20 @@ def _state_query(extra: Dict[str, str] | None = None) -> str:
 
 
 def _restore_state_from_query() -> bool:
-    """若網址帶有狀態參數則還原，回傳是否發生還原。"""
+    """若網址帶有狀態參數則還原，回傳是否發生還原。
+
+    所有取值在寫入 session_state 前都會校驗合法性，
+    非法值（如未知城市、越界月份）會被靜默忽略，避免後續 KeyError。
+    """
     query = st.query_params
-    if not query and len(query) == 0:
+    if not query:
         return False
+    cfg = load_config()
+    cities_cfg = cfg["cities"]
+    selectable_cities = {
+        key for key in cities_cfg if key in cfg["tariffs"]
+    }
+    habits_cfg = cfg["usage_rates"]["dishwashing"]
     changed = False
     if "enter" in query:
         st.session_state["entered"] = query["enter"] == "1"
@@ -626,10 +636,24 @@ def _restore_state_from_query() -> bool:
                 value = float(raw)
             else:
                 value = str(raw)
-            st.session_state[key] = value
-            changed = True
         except (TypeError, ValueError):
             continue
+        if key == "city" and value not in selectable_cities:
+            continue
+        if key == "view" and value not in VIEWS:
+            continue
+        if key == "lang" and value not in ("zh-TW", "en"):
+            continue
+        if key == "dishwashing_habit" and value not in habits_cfg:
+            continue
+        if key == "month" and not 1 <= value <= 12:
+            continue
+        if key == "people" and value < 1:
+            continue
+        if key in FLOAT_KEYS and value < 0:
+            continue
+        st.session_state[key] = value
+        changed = True
     return changed
 
 
@@ -822,9 +846,12 @@ def main() -> None:
 
     if view == "location":
         _section(t("city_label", lang))
+        selectable_cities = [
+            key for key in cities if key in config["tariffs"]
+        ]
         st.selectbox(
             t("city_label", lang),
-            options=list(cities),
+            options=selectable_cities,
             format_func=lambda key: localized(
                 cities[key]["name_zh"], cities[key]["name_en"], lang
             ),
