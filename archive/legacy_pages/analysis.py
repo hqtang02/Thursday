@@ -2,8 +2,15 @@
 import pandas as pd
 import streamlit as st
 
-st.title("💧 Your Water Allocation Plan")
-st.caption("A practical rainwater allocation plan for your household")
+from theme import inject_theme, page_header, render_sidebar
+
+inject_theme()
+render_sidebar("analysis")
+
+page_header(
+    "Your Water Allocation Plan",
+    "A practical rainwater allocation plan for your household.",
+)
 
 result = st.session_state.get("simulation_result")
 
@@ -16,6 +23,16 @@ if result is None:
 df = result["data"]
 summary = result["summary"]
 config = st.session_state.get("simulation_config") or {}
+
+place = st.session_state.get("selected_place")
+source = result.get("source")
+if place or source:
+    info = []
+    if place:
+        info.append(f"Location: {place}")
+    if source:
+        info.append(f"Rainfall source: {source}")
+    st.caption(" | ".join(info))
 
 days = len(df)
 
