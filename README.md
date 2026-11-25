@@ -1,60 +1,100 @@
 # Rainwater Smart Planner
 
-智能雨水收集与七日用水调度器。基于 Open-Meteo 七日降雨预报，模拟屋顶水箱的逐日水量平衡，并在穷举所有合法调度方案后，给出高优先级用水零缺口的智能任务安排。**除天气 API 外无其他外部依赖。**
+A smart rainwater harvesting and 7-day water scheduling app. Based on the Open-Meteo 7-day rainfall forecast, it simulates the daily water balance of a rooftop tank and, after exhaustively searching all valid schedules, produces an intelligent task plan with zero shortfall for high-priority usage. **No external runtime dependencies beyond the weather API.**
 
-## 快速开始
+## Environment Setup
+
+| Item | Requirement |
+| --- | --- |
+| Python | 3.10 or newer (3.12 recommended — the version used in CI) |
+| pip | Bundled with Python; upgrading first is recommended: `python -m pip install --upgrade pip` |
+| OS | Windows / macOS / Linux (a one-click launcher script is provided for Windows) |
+| Network | Geolocation and the 7-day rainfall forecast require internet access to Open-Meteo (free, no API key needed); all other features work offline |
+| Browser | Any modern browser; GPS geolocation requires granting location permission in the browser prompt (available only on `localhost` or HTTPS pages) |
+
+Python dependencies (`requirements.txt`):
+
+| Package | Version | Purpose |
+| --- | --- | --- |
+| `streamlit` | ≥ 1.67 | Web UI framework; the interface uses `streamlit.components.v2` custom components — older versions raise `ModuleNotFoundError` |
+| `pandas` | ≥ 2.0 | Result tables and CSV export |
+| `streamlit-js-eval` | ≥ 1.0 | Browser GPS geolocation (preferred) |
+| `streamlit-geolocation` | ≥ 0.0.10 | Browser GPS geolocation (fallback — either package works, the code falls back automatically) |
+| `pytest` | ≥ 7.4 | Running the unit tests (development/verification only) |
+
+## How to Run
+
+**Option 1: Command line (all platforms)**
 
 ```bash
+# 1. (Optional) Create a virtual environment
+python -m venv .venv
+.venv\Scripts\activate        # Windows
+# source .venv/bin/activate   # macOS / Linux
+
+# 2. Install dependencies
 pip install -r requirements.txt
+
+# 3. (Optional) Run the unit tests to verify the setup
 pytest -q
+
+# 4. Start the app
 streamlit run main.py
 ```
 
-Windows 用户也可直接双击 `WebClick.bat`。
+Your browser should open `http://localhost:8501` automatically; if it does not, visit that address manually. To stop the app, press `Ctrl + C` in the terminal.
 
-> 注意：需要 Streamlit ≥ 1.67（界面使用 `streamlit.components.v2` 自定义组件）。定位与降雨预报需要联网访问 Open-Meteo（免费、无需密钥）。
+**Option 2: Windows one-click launch**
 
-## 界面功能
+Simply double-click `WebClick.bat`: the script locates a Python interpreter on your machine (Anaconda first, then the `py` launcher / system `python`), checks for and auto-installs missing dependencies, then starts the app.
 
-- **欢迎首页**：全屏自定义组件，点击进入主界面，无闪动动效。
-- **双模式定位**：GPS 浏览器定位（点击后才请求权限）或全球城市搜索（Open-Meteo 地理编码，支持重名城市选择）。
-- **七日降雨卡片**：按降水量分级展示无雨 / 小雨 / 中雨 / 大雨动画与毫米数，标注数据获取时间。
-- **六场景用水选择**：浴室、厨房、洗衣、花园、车道、客厅，各带基准用水量、优先级与"固定每日 / 灵活单次"属性，Low / Medium / High 三档按 0.6 / 1.0 / 1.5 系数缩放。
-- **水箱参数**：集水面积、水箱容量，高级设置含收集效率、初始储水、最低保留水位，非法组合（储水超过容量）会给出明确报错。
-- **智能调度结果**：收集 / 分配 / 缺水 / 溢流四指标卡，基线与优化方案对比，七日逐日计划表，水箱存量曲线，收集-分配柱状图，分级文字建议，一键导出 CSV。
-- **结果参数标注**：结果区完整展示本次计算所用的位置、水箱参数与各场景用水量，便于核对。
+**Troubleshooting**
 
-## 项目结构
+- `ModuleNotFoundError: No module named 'streamlit.components.v2'` on startup: your Streamlit is too old — run `pip install -U "streamlit>=1.67"`.
+- `No module named 'streamlit_js_eval'` on startup: run `pip install -r requirements.txt`; a fallback is built in, so having either geolocation package is enough.
+- Geolocation / rainfall data fails to load: check that your network can reach Open-Meteo, and that the browser is allowed to access your location.
 
-| 文件 | 职责 |
+## Features
+
+- **Welcome screen**: fullscreen custom component; click to enter the main interface. No flickering animations.
+- **Dual-mode geolocation**: browser GPS (permission requested only after clicking) or global city search (Open-Meteo geocoding, with disambiguation for duplicate city names).
+- **7-day rainfall cards**: no-rain / light / moderate / heavy rain animations and millimetre values graded by precipitation, with the data fetch timestamp shown.
+- **Six usage scenes**: Bathroom, Kitchen, Laundry, Garden, Driveway, Living Room — each with a baseline amount, priority, and "fixed daily / flexible one-off" attribute; Low / Medium / High levels scale usage by 0.6 / 1.0 / 1.5.
+- **Tank parameters**: collection area and tank capacity, plus advanced settings for collection efficiency, initial storage, and minimum reserve; invalid combinations (initial storage exceeding capacity) produce a clear error message.
+- **Smart scheduling results**: four metric cards (collected / allocated / shortfall / overflow), baseline vs. optimized plan comparison, day-by-day 7-day schedule, tank storage curve, collection-vs-allocation bar chart, tiered text recommendations, and one-click CSV export.
+- **Result parameter annotation**: the results section shows the exact location, tank parameters, and per-scene usage amounts used in the calculation, so you can verify the inputs behind every result.
+
+## Project Structure
+
+| File | Responsibility |
 | --- | --- |
-| `rainfall_service.py` | Open-Meteo 城市搜索与未来 7 天降水预报抓取，带输入校验与网络错误处理 |
-| `rainwater_engine.py` | 纯 Python 核心引擎：逐日水量平衡模拟与调度穷举优化，不依赖 Streamlit |
-| `recommendation_engine.py` | 对比基线与优化方案，生成缺水 / 溢流 / 任务调整建议 |
-| `main.py` | Streamlit 单页交互界面，只负责展示与调用引擎 |
-| `test_rainwater.py` / `test_recommendation.py` | 核心引擎与建议生成的 pytest 单元测试 |
-| `assets/` | 场景卡片图片 |
+| `rainfall_service.py` | Open-Meteo city search and 7-day precipitation forecast fetching, with input validation and network error handling |
+| `rainwater_engine.py` | Pure-Python core engine: daily water-balance simulation and exhaustive schedule optimization; no Streamlit dependency |
+| `recommendation_engine.py` | Compares baseline and optimized plans to generate shortfall / overflow / task-adjustment recommendations |
+| `main.py` | Streamlit single-page interface — presentation and engine calls only |
+| `test_rainwater.py` / `test_recommendation.py` | pytest unit tests for the core engine and recommendation generation |
+| `assets/` | Scene card images |
 
-`water_engine.py`、`data/`、`test_water_engine.py` 为早期迭代（阶梯水费计算器）的遗留代码与测试，仍通过全部测试，保留供参考；更早期的页面实现位于 `archive/`。
+`water_engine.py`, `data/`, and `test_water_engine.py` are legacy code and tests from an earlier iteration (a tiered water-bill calculator). They still pass all tests and are kept for reference; even earlier page implementations live in `archive/`.
 
-## 核心引擎 API
+## Core Engine API
 
-- `run_schedule(rainfall, area, capacity, tasks, schedule, ...)`：按给定调度模拟完整七日，逐日计算收集量、溢流（超出容量）、按优先级分配、缺水与剩余存量。
-- `baseline_schedule(tasks)`：基线方案——灵活任务排在允许窗口的最后一天。
-- `compare_strategies(rainfall, area, capacity, tasks, ...)`：穷举灵活任务的全部日期组合（上限 50000 种），按字典序评分取最优：① 高优先级任务缺水量 → ② 总缺水量 → ③ 总溢流量 → ④ 调度变动次数。返回基线与优化两套完整模拟结果。
-- `generate_recommendations(comparison, dates, tasks)`：由两套方案的差异生成文字建议。
+- `run_schedule(rainfall, area, capacity, tasks, schedule, ...)`: simulates the full seven days for a given schedule, computing daily collection, overflow (beyond capacity), priority-ordered allocation, shortfall, and remaining storage.
+- `baseline_schedule(tasks)`: the baseline plan — flexible tasks are placed on the last day of their allowed window.
+- `compare_strategies(rainfall, area, capacity, tasks, ...)`: exhaustively enumerates all date combinations for flexible tasks (capped at 50,000) and picks the optimum by lexicographic score: ① high-priority shortfall → ② total shortfall → ③ total overflow → ④ number of schedule changes. Returns complete simulation results for both the baseline and the optimized plan.
+- `generate_recommendations(comparison, dates, tasks)`: generates text recommendations from the differences between the two plans.
 
-`WaterTask` 字段：`name`、`amount`（升）、`priority`（1 最高）、`flexible`、`earliest_day` / `latest_day`。非法输入（空降雨序列、负面积、效率超出 [0,1]、任务窗口越界、固定任务跨多天等）会主动抛出 `ValueError`。
+`WaterTask` fields: `name`, `amount` (litres), `priority` (1 = highest), `flexible`, `earliest_day` / `latest_day`. Invalid inputs (empty rainfall series, negative area, efficiency outside [0,1], task window out of range, fixed tasks spanning multiple days, etc.) raise `ValueError`.
 
-## 每日水量平衡公式
+## Daily Water-Balance Formulas
 
 ```
-收集量(L) = 降雨(mm) × 集水面积(m²) × 收集效率
-溢流(L)   = max(0, 昨日存量 + 收集量 − 水箱容量)
-可用水(L) = 当前存量 − 最低保留水位
-分配      = 当日任务按 (优先级, 场景顺序) 依次供水，不足部分记为缺水
+Collected (L)  = rainfall (mm) × collection area (m²) × collection efficiency
+Overflow (L)   = max(0, previous storage + collected − tank capacity)
+Available (L)  = current storage − minimum reserve
+Allocation     = tasks served in (priority, scene order); any unmet amount is recorded as shortfall
 ```
 
-## 说明
+## Notes
 
-降雨数据来自 Open-Meteo 七日预报，用水量基准为演示估算值；背景水位动画反映已选场景数量而非真实储水量。CI 由 GitHub Actions 提供，push 与 PR 时自动运行全部 pytest 用例。
+Rainfall data comes from the Open-Meteo 7-day forecast; baseline usage amounts are demo estimates. The background water-level animation reflects the number of selected scenes, not actual storage. CI is provided by GitHub Actions and runs the full pytest suite automatically on push and pull requests.
